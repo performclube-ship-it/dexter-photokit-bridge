@@ -124,3 +124,43 @@ also succeeded. These are **synthetic code tests and unsigned native builds**.
 The original Floot iOS export has still not been supplied, no PhotoKit test
 on a real iPhone has occurred, and this code is not in the TestFlight binary.
 The native plugin remains unpublished to npm. No photographs were modified.
+
+
+## Post-persistence cancellation gate — 22 November 2026, 23:43 UTC
+
+Merged [PR #10](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/10)
+into the existing plugin repository at commit
+`6af7c518f475a0108638ab9ec4eae861e6beef7d` (PR source commit
+`a89ceb462669104a1a63f5c7d0d7664af9be6901`). No new Floot
+project or parallel mobile app was created.
+
+**Bug fixed:** The user could request cancellation while the JS coordinator
+was awaiting the durable `onPage` write. Previously, after that callback
+returned, the scanner could emit a later progress event and, on the last
+batch, report `complete` even though cancellation had been requested.
+It now rechecks `shouldStop` after successful durable persistence. The
+stopped result accurately includes the batch *already stored*, reports
+`state:'stopped'`, `complete:false`, requests no further pages and
+emits no post-cancel progress (especially no misleading 100%). It still
+closes the active native snapshot and fails closed if that final close
+cannot be verified. Stored records are never rolled back or deleted.
+
+**Regression evidence:** two new synthetic tests cover cancellation during
+an asynchronous first-page save and cancellation during the final-page save.
+`src/snapshotScan.js` and `dist/snapshotScan.js` are identical.
+All four GitHub Actions runs for PR head `a89ceb462669104a1a63f5c7d0d7664af9be6901`
+completed **success**:
+
+- [iOS Simulator/CocoaPods + full Node tests, push run 45084453261](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45084453261)
+- [Unsigned iPhone arm64 local CocoaPod, push run 45084453272](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45084453272)
+- [iOS Simulator/CocoaPods, PR run 45084533732](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45084533732)
+- [Unsigned iPhone local CocoaPod, PR run 45084533713](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45084533713)
+
+These checks prove packaged JS tests and unsigned native fixture builds, **not**
+real PhotoKit behavior on an iPhone. Floot's shared 1,000-action daily limit
+was still exhausted at 23:40 UTC on 22 November and resets at 09:00 UTC on
+23 November; no Floot write, typecheck or mobile build was performed in
+this change. The real DEXTER Project ZIP is still missing. Integration into
+the exported app, user-reviewed pilot, signing, TestFlight installation,
+real 10,000+ asset memory measurements and public App Store release remain
+blocked until the stated gates are met.

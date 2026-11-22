@@ -105,3 +105,30 @@ test('album creation and existing-asset association are single-flight with no si
   assert.ok(completion.indexOf('let presentAfter = self.membership') >= 0);
   assert.ok(completion.indexOf('let presentAfter = self.membership') < completion.indexOf('call.resolve('));
 });
+
+test('native write pilot cannot bypass the reviewed ten-photo limit while read checks still allow up to 250', () => {
+  const add = swift.split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[1]
+    .split('@objc func verifyAlbumMembership(_ call: CAPPluginCall) {')[0];
+  const readable = swift.split('@objc func areAssetsAccessible(_ call: CAPPluginCall) {')[1]
+    .split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[0];
+  assert.match(swift, /private let maxPilotWrite = 10/);
+  assert.match(swift, /private let maxAlbumBatch = 250/);
+  assert.match(add, /guard ids\.count <= maxPilotWrite else \{/);
+  assert.match(add, /"PILOT_WRITE_LIMIT"/);
+  assert.ok(add.indexOf('guard ids.count <= maxPilotWrite') < add.indexOf('guard acquireAlbumMutation(call)'));
+  assert.ok(add.indexOf('guard ids.count <= maxPilotWrite') < add.indexOf('self.photoLibrary.performChanges('));
+  assert.doesNotMatch(readable, /maxPilotWrite/);
+});
+
+test('already-present album no-op must independently verify membership before reporting success', () => {
+  const add = swift.split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[1]
+    .split('@objc func verifyAlbumMembership(_ call: CAPPluginCall) {')[0];
+  const noOp = add.split('if toAdd.isEmpty {')[1]
+    .split('self.photoLibrary.performChanges(')[0];
+  assert.match(noOp, /let confirmed = self\.membership\(in: album, ids: ids\)/);
+  assert.match(noOp, /guard confirmed\.count == ids\.count else \{/);
+  assert.match(noOp, /"ALBUM_NOOP_UNVERIFIED"/);
+  assert.ok(noOp.indexOf('let confirmed =') < noOp.indexOf('call.resolve('));
+  assert.ok(noOp.indexOf('guard confirmed.count') < noOp.indexOf('self.releaseAlbumMutation()'));
+  assert.ok(noOp.indexOf('"ALBUM_NOOP_UNVERIFIED"') < noOp.indexOf('call.resolve('));
+});

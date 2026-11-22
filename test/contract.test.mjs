@@ -35,7 +35,7 @@ test('read-only metadata pagination does not request photo thumbnails or binary 
   assert.match(swift, /PHAsset\.fetchAssets\(with: self\.scanFetchOptions\(\)\)/);
   const paging = swift.split('@objc func getAssetsPage(_ call: CAPPluginCall) {')[1]
     .split('@objc func listAlbums(_ call: CAPPluginCall) {')[0];
-  assert.doesNotMatch(paging, /PHImageManager|requestImage\\s*\\(|PHCachingImageManager|base64EncodedString/);
+  assert.doesNotMatch(paging, /PHImageManager|requestImage\s*\(|PHCachingImageManager|base64EncodedString/);
   assert.match(swift, /limit <= maxPage/);
 });
 test('native module uses JS export and only carries iOS assets in package', () => {

@@ -178,6 +178,31 @@ session was not invalidated during enumeration.
 snapshot consistency. Floot's existing app must adopt begin/token/end before
 claiming stable pagination of 10,000+ images. Across app restarts, tokens expire
 by design; the UI must revalidate previous locally saved progress and start a
-new session rather than assuming the same native snapshot survived. This is
-source-level implementation pending Xcode CI and real device tests, not proof
-of an atomic PhotoKit transaction or permanent 10,000+ photo indexing.
+new session rather than assuming the same native snapshot survived. The new snapshot API passed unsigned Xcode/CocoaPods compilation for both the
+iPhone SDK (arm64) and iOS Simulator on 22 November 2026; this does **not**
+constitute a real device test, an atomic PhotoKit transaction, or validation
+of 10,000+ real photographs. The old successful tarball's SHA256 documented
+above is historical: it precedes these changes and MUST NOT be used as
+evidence for this updated Swift source.
+
+### Snapshot CI evidence (22 November 2026, 15:40 UTC)
+
+- [iPhone SDK local CocoaPod run 45039471307](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45039471307):
+  **success**; static verification, native Swift build, arm64 framework and
+  Objective-C registration/linkage checks. Artifact 14761350656, outer ZIP
+  digest SHA256 `111f8c11f4ac07b5f9cdf6b620c50cf5dd37027626e144e08f262a07c43b24e4`.
+- [iOS Simulator/CocoaPods run 45039471340](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45039471340):
+  **success**; contract tests, type/interface checks performed by project scripts,
+  Swift compilation and packaging. Artifact 14760739045, outer ZIP digest
+  SHA256 `bc1ddd834b287b48fca172c5093e3ec1a14ff36b208bdb878f978bc23ea728dd`.
+- Both runs tested source commit
+  `46c8ebbb58849c19ccf952f05c295e9ac88f3aa8`, merged into main via
+  [PR #2](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/2)
+  at merge commit `34f119e985d2223b03c8156a7ebc4c437fd47bee`.
+
+**Still not done:** Floot UI code does not pass snapshotToken; its calls use
+legacy unsnapshotted pages. The native package has not been installed in an
+actual DEXTER export or uploaded as a signed TestFlight build. Obtain the
+original private Project ZIP, inspect embedded web bundle/version, integrate
+the current bridge and adopt token-based pages with explicit reset/expiry
+handling before testing 10,000+ photos on a physical iPhone.

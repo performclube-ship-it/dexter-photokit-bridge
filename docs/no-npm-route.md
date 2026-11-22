@@ -136,3 +136,28 @@ The inspector makes no filesystem changes and never uploads the export.
 Run `node --test test/export-inspector.test.mjs` for positive, stale-bundle,
 identity, missing-plist, secret and symlink regression cases. No native export
 had been supplied when this guard was written.
+
+
+## Native export safety hardening (22 November 2026, 14:40 UTC)
+
+Before adding the local PhotoKit bridge, the read-only original-export inspector
+also requires the existing Xcode `PRODUCT_BUNDLE_IDENTIFIER` to agree with the
+DEXTER bundle ID in BOTH Capacitor configurations. An absent or mixed Xcode
+identity blocks the procedure. It also blocks a missing/blank readable
+`NSPhotoLibraryUsageDescription` and refuses symlinks in any ancestor of native
+files or the packaged web directory, not just symlinks in the last path
+component. This prevents following a substituted `ios/App` or `public`
+directory outside the extracted export.
+
+**Evidence:** the existing [read-only export preflight CI run
+45034074140](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45034074140)
+passed all **11 Node regression tests** after the safety fixes. Tests use
+disposable mock exports, not the actual mobile build. The verdict
+`REVIEW_REQUIRED` is never approval to ship, and `BLOCKED` always prevents
+native integration. No Apple Photos originals were accessed or changed.
+
+These checks deliberately cannot guarantee that a specific Xcode configuration
+will sign with the expected app identity or that a compiled JavaScript marker
+corresponds to an active code path. Review the real downloaded ZIP, resolve all
+warnings and perform an actual unsigned Xcode build and device tests before
+considering signing or TestFlight. The original Floot export is still missing.

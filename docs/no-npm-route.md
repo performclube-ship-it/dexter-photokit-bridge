@@ -208,7 +208,7 @@ the current bridge and adopt token-based pages with explicit reset/expiry
 handling before testing 10,000+ photos on a physical iPhone.
 
 
-## 22 November 2026 — native album-write race hardening (unsigned CI pending)
+## 22 November 2026 — native album-write race hardening (unsigned CI passed)
 
 The bridge now reserves a single album mutation at a time within its own iOS
 plugin instance. Concurrent create/add requests fail explicitly with
@@ -221,3 +221,33 @@ no-op and PhotoKit completion, including failed verification. The guard does
 not prevent other apps or another device from changing the Photos library;
 exact album IDs and post-operation membership checks remain mandatory.
 This is not a device test and does not change the built DEXTER app.
+
+
+## 22 November 2026, 18:40 UTC — native pilot safety gate merged
+
+The **iOS Swift** `addExistingAssets` endpoint now refuses selections larger
+than **10 PHAssets per native call** with `PILOT_WRITE_LIMIT`, even if JavaScript
+or the preview UI is bypassed. This refusal occurs *before* the mutation lock
+or PhotoKit write. Metadata/accessibility/verification batch reads retain their
+250-ID limit. This is a per-call guard, **not** a lifetime or session quota.
+
+For an all-already-present selection, the native no-op branch now performs a
+second membership query before claiming success. If the album changed between
+reads, it returns `ALBUM_NOOP_UNVERIFIED` instead of falsely reporting ten
+confirmed items. The bridge still verifies all requested members after an
+actual PhotoKit mutation. No originals are copied, removed or deleted.
+
+**Validated:** commit `824d6041cbee1d43c5d6fbe7d354db0572fccfb9` passed the
+[unsigned iPhone arm64 local-pod CI](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45056315958)
+and [iOS Simulator/CocoaPods CI](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45056315975),
+including new regression checks for both guards. Merged to `main` through
+[PR #5](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/5),
+merge commit `7e2c4c430ab53d5d92fdb90b07789f1fea4f0625`.
+
+**Limitations:** CI exercised source code and unsigned fixtures, not Photos
+operations on an actual device. The existing Floot mobile build still omits the
+native PhotoKit bridge. The real DEXTER Project ZIP must be inspected privately
+before integration, and the Floot web implementation still needs to adopt the
+snapshot token API. No new signed TestFlight build, live photo mutation or
+App Store submission occurred in this round. The Floot account-wide action
+limit reported earlier is separate and must clear before updating its code.

@@ -171,3 +171,53 @@ test('published JS and source JS scanner are byte-identical', () => {
     fs.readFileSync(new URL('../dist/snapshotScan.d.ts', import.meta.url), 'utf8')
   );
 });
+
+test('a photo-library change during durable persistence prevents a false complete result', async () => {
+  let changed = false;
+  const {plugin, log} = fakePlugin(3, {
+    async endAssetScan({snapshotToken}) {
+      log.end.push(snapshotToken);
+      if (changed) { const e = Error('LIBRARY_CHANGED'); e.code = 'LIBRARY_CHANGED'; throw e; }
+      return {ended: true};
+    }
+  });
+  let saved = 0;
+  await assert.rejects(scanSnapshotPages({
+    plugin, onPage({assets}) { saved += assets.length; changed = true; }
+  }), e => e.code === 'LIBRARY_CHANGED');
+  assert.equal(saved, 3, 'already persisted items are not rolled back or falsely certified');
+  assert.deepEqual(log.end, ['fresh-scan']);
+});
+
+test('an unverified native close cannot certify success; storage errors remain primary', async () => {
+  const {plugin, log} = fakePlugin(2, {
+    async endAssetScan({snapshotToken}) { log.end.push(snapshotToken); return {ended: false}; }
+  });
+  await assert.rejects(scanSnapshotPages({plugin, onPage() {}}),
+    e => e.code === 'SCAN_END_UNVERIFIED');
+  await assert.rejects(scanSnapshotPages({plugin, onPage() {throw Error('persist failed');}}),
+    /persist failed/);
+  assert.deepEqual(log.end, ['fresh-scan', 'fresh-scan']);
+});
+
+test('cancellation while a native page is in flight does not persist it', async () => {
+  let stopRequested = false;
+  const {plugin, log} = fakePlugin(300);
+  const original = plugin.getAssetsPage;
+  plugin.getAssetsPage = async args => {
+    const page = await original(args);
+    stopRequested = true;
+    return page;
+  };
+  let writes = 0;
+  const result = await scanSnapshotPages({
+    plugin, pageSize: 100,
+    shouldStop() {return stopRequested;},
+    onPage() {writes++;}
+  });
+  assert.deepEqual({state:result.state, processed:result.processed},
+    {state:'stopped',processed:0});
+  assert.equal(writes,0);
+  assert.equal(log.page.length,1);
+  assert.deepEqual(log.end,['fresh-scan']);
+});

@@ -76,3 +76,59 @@ test('rejects symlinks in web directory',t=>{
   assert.equal(result.status,'BLOCKED');
   assert.match(result.problems.join(' '),/symlinks/);
 });
+
+
+test('blocks a different Xcode bundle identifier even if both Capacitor IDs match', t => {
+  const {dir,write} = setup(t);
+  write('ios/App/App.xcodeproj/project.pbxproj',
+    'PRODUCT_BUNDLE_IDENTIFIER = com.unrelated.photos;');
+  const result = inspectFlootExport(dir);
+  assert.equal(result.rootAppId, expected);
+  assert.equal(result.nativeAppId, expected);
+  assert.equal(result.status, 'BLOCKED');
+  assert.match(result.problems.join(' '), /Xcode PRODUCT_BUNDLE_IDENTIFIER/);
+});
+
+test('blocks Xcode builds with mixed identities or without an explicit app identity', t => {
+  const {dir,write} = setup(t);
+  write('ios/App/App.xcodeproj/project.pbxproj',
+    'PRODUCT_BUNDLE_IDENTIFIER = '+expected+';\\nPRODUCT_BUNDLE_IDENTIFIER = other.app;');
+  assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
+  write('ios/App/App.xcodeproj/project.pbxproj', 'SWIFT_VERSION = 5.0;');
+  assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
+});
+
+test('rejects an empty Photos permission explanation', t => {
+  const {dir,write} = setup(t);
+  write('ios/App/App/Info.plist',
+    '<plist><dict><key>NSPhotoLibraryUsageDescription</key><string>   </string></dict></plist>');
+  const result = inspectFlootExport(dir);
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.hasPhotoPermission, false);
+});
+
+test('does not follow an iOS ancestor symlink even when the file itself is regular', t => {
+  const {dir} = setup(t);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(),'dexter-foreign-native-'));
+  t.after(() => fs.rmSync(outside,{force:true,recursive:true}));
+  const nativePath=path.join(dir,'ios/App');
+  fs.renameSync(nativePath,path.join(outside,'App'));
+  fs.symlinkSync(path.join(outside,'App'),nativePath,'dir');
+  const result=inspectFlootExport(dir);
+  assert.equal(result.status,'BLOCKED');
+  assert.match(result.problems.join(' '),/Symlink|non-regular|Cannot inspect/);
+  assert.equal(result.safeToShip,false);
+});
+
+test('does not scan the packaged web bundle through a directory symlink', t => {
+  const {dir}=setup(t);
+  const outside=fs.mkdtempSync(path.join(os.tmpdir(),'dexter-foreign-web-'));
+  t.after(() => fs.rmSync(outside,{force:true,recursive:true}));
+  const publicPath=path.join(dir,'ios/App/App/public');
+  fs.renameSync(publicPath,path.join(outside,'public'));
+  fs.symlinkSync(path.join(outside,'public'),publicPath,'dir');
+  const result=inspectFlootExport(dir);
+  assert.equal(result.status,'BLOCKED');
+  assert.match(result.problems.join(' '),/Symlink/);
+  assert.equal(result.webFileCount,0);
+});

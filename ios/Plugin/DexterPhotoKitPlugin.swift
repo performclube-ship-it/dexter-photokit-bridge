@@ -25,6 +25,9 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
     private let photoLibrary = PHPhotoLibrary.shared()
     private let maxPage = 250
     private let maxAlbumBatch = 250
+    // Until a real-device PhotoKit pilot succeeds, native writes must not
+    // accept more photos than the reviewed UI flow, even via a direct JS call.
+    private let maxPilotWrite = 10
 
     // A single in-flight album mutation prevents duplicate requests from
     // racing on stale membership or creating two albums with one title.
@@ -388,6 +391,10 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
     @objc func addExistingAssets(_ call: CAPPluginCall) {
         guard hasFullAccess(call) else { return }
         guard let album = regularAlbum(call), let ids = assetIds(call) else { return }
+        guard ids.count <= maxPilotWrite else {
+            call.reject("O piloto Apple permite adicionar no máximo 10 fotografias de cada vez. Reduz a seleção e revê novamente.", "PILOT_WRITE_LIMIT")
+            return
+        }
         guard album.canPerform(.addContent) else {
             call.reject("O álbum Apple não permite adicionar fotografias.", "ALBUM_READ_ONLY")
             return
@@ -403,6 +410,15 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             let presentBefore = self.membership(in: album, ids: ids)
             let toAdd = ids.filter { !presentBefore.contains($0) }.compactMap { fetched[$0] }
             if toAdd.isEmpty {
+                // A competing Photos client may have changed the album between
+                // the first membership read and this no-op. Verify again before
+                // reporting success; never count a stale read as confirmed.
+                let confirmed = self.membership(in: album, ids: ids)
+                guard confirmed.count == ids.count else {
+                    self.releaseAlbumMutation()
+                    call.reject("A pertença ao álbum mudou durante a verificação. Confirma na app Fotografias antes de repetir.", "ALBUM_NOOP_UNVERIFIED")
+                    return
+                }
                 self.releaseAlbumMutation()
                 call.resolve([
                     "requestedCount": ids.count,

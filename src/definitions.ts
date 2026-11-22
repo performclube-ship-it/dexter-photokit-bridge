@@ -23,6 +23,7 @@ export interface DexterPhotoKitPlugin {
   createAlbum(input: { title: string }): Promise<{ id: string }>;
   isAlbumWritable(input: { albumId: string }): Promise<{ writable: boolean }>;
   areAssetsAccessible(input: { assetIds: string[] }): Promise<{ accessible: boolean }>;
+  /** Safety pilot: maximum 10 unique original PhotoKit assets per native write until real-device validation. */
   addExistingAssets(input: { albumId: string; assetIds: string[] }): Promise<{
     requestedCount: number;
     addedCount: number;

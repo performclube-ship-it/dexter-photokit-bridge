@@ -1,0 +1,137 @@
+/**
+ * Resumable-by-restart (NOT by offset) PhotoKit snapshot scanner for DEXTER.
+ *
+ * Every invocation starts a new volatile native snapshot at offset zero.
+ * The caller persists/merges the verified pages by original PHAsset ID.
+ * Never persist snapshotToken, resume an old offset on a new token, or claim
+ * a complete library scan when maxItems is below the native library total.
+ */
+function stop(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
+}
+
+function validInteger(value, minimum, maximum) {
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+}
+
+function validateAssets(assets, seen) {
+  const nextIds = new Set();
+  for (const asset of assets) {
+    if (!asset || typeof asset.id !== 'string' ||
+        asset.id.length === 0 || asset.id.length > 256 ||
+        !['image', 'video', 'other'].includes(asset.type) ||
+        (asset.createdAt !== null &&
+          (typeof asset.createdAt !== 'string' ||
+           !Number.isFinite(Date.parse(asset.createdAt)))) ||
+        !validInteger(asset.width, 0, Number.MAX_SAFE_INTEGER) ||
+        !validInteger(asset.height, 0, Number.MAX_SAFE_INTEGER) ||
+        nextIds.has(asset.id) || seen.has(asset.id)) {
+      stop('INVALID_NATIVE_PAGE', 'A página PhotoKit tem dados inválidos ou identificadores repetidos. Nenhum progresso desta página foi confirmado.');
+    }
+    nextIds.add(asset.id);
+  }
+  return nextIds;
+}
+
+/**
+ * @param {Object} options
+ * @param {Object} options.plugin - DexterPhotoKit native bridge
+ * @param {(page: Object) => (void | Promise<void>)} options.onPage
+ *   MUST durably persist/merge every page before resolving.
+ * @param {number} [options.maxItems=10000]
+ * @param {number} [options.pageSize=200]
+ * @param {() => (boolean | Promise<boolean>)} [options.shouldStop]
+ * @param {(status: Object) => (void | Promise<void>)} [options.onProgress]
+ */
+export async function scanSnapshotPages({
+  plugin,
+  onPage,
+  maxItems = 10000,
+  pageSize = 200,
+  shouldStop = () => false,
+  onProgress = () => {}
+}) {
+  if (!plugin || typeof plugin.authorizationStatus !== 'function' ||
+      typeof plugin.requestAuthorization !== 'function' ||
+      typeof plugin.beginAssetScan !== 'function' ||
+      typeof plugin.getAssetsPage !== 'function' ||
+      typeof plugin.endAssetScan !== 'function' ||
+      typeof onPage !== 'function' ||
+      typeof shouldStop !== 'function' ||
+      typeof onProgress !== 'function' ||
+      !validInteger(maxItems, 1, 100000) ||
+      !validInteger(pageSize, 1, 250)) {
+    stop('INVALID_SCAN_CONFIGURATION', 'Configuração de leitura PhotoKit inválida.');
+  }
+
+  let { status } = await plugin.authorizationStatus();
+  if (status === 'notDetermined') {
+    ({ status } = await plugin.requestAuthorization());
+  }
+  if (status !== 'authorized') {
+    stop('PHOTOS_FULL_ACCESS_REQUIRED', 'É necessário autorizar o acesso completo às Fotografias no iPhone.');
+  }
+
+  // IMPORTANT: no persistent cursor is accepted. Native tokens expire on
+  // app relaunch and on PHPhotoLibraryChangeObserver invalidation.
+  const scan = await plugin.beginAssetScan();
+  if (!scan || typeof scan.snapshotToken !== 'string' ||
+      scan.snapshotToken.length < 1 || scan.snapshotToken.length > 128 ||
+      !validInteger(scan.total, 0, Number.MAX_SAFE_INTEGER)) {
+    stop('INVALID_SCAN_SESSION', 'O PhotoKit devolveu uma sessão de leitura inválida.');
+  }
+
+  const snapshotToken = scan.snapshotToken;
+  const total = scan.total;
+  const target = Math.min(maxItems, total);
+  const seen = new Set();
+  let processed = 0;
+  let pages = 0;
+
+  try {
+    while (processed < target) {
+      if (await shouldStop()) {
+        return { state: 'stopped', processed, total, target, pages, complete: false };
+      }
+      const limit = Math.min(pageSize, target - processed);
+      const page = await plugin.getAssetsPage({
+        offset: processed, limit, snapshotToken
+      });
+      const end = processed + limit;
+      if (!page || page.total !== total || !Array.isArray(page.assets) ||
+          page.assets.length !== limit ||
+          page.nextOffset !== (end < total ? end : null)) {
+        stop('INVALID_NATIVE_PAGE', 'A sequência PhotoKit mudou ou está incompleta. Reinicia a análise.');
+      }
+      const ids = validateAssets(page.assets, seen);
+      // Progress is NOT reported until persistence resolves successfully.
+      // The caller must store records and a merge checkpoint atomically.
+      await onPage({
+        assets: page.assets,
+        offset: processed,
+        nextOffset: end,
+        total,
+        target
+      });
+      for (const id of ids) seen.add(id);
+      processed = end;
+      pages += 1;
+      await onProgress({ processed, total, target, pages });
+    }
+    const complete = processed === total;
+    return {
+      state: complete ? 'complete' : 'limit_reached',
+      processed, total, target, pages, complete
+    };
+  } finally {
+    // An expired snapshot may legitimately refuse endAssetScan. Cleanup must
+    // never conceal a page validation/persistence failure or report success.
+    try {
+      await plugin.endAssetScan({ snapshotToken });
+    } catch {
+      // The native session is process-local and has already expired/changed.
+    }
+  }
+}

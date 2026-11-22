@@ -5,7 +5,7 @@ const root = new URL('../', import.meta.url);
 const swift = fs.readFileSync(new URL('../ios/Plugin/DexterPhotoKitPlugin.swift', import.meta.url), 'utf8');
 const definitions = fs.readFileSync(new URL('../dist/definitions.d.ts', import.meta.url), 'utf8');
 const metadata = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const expected = ['authorizationStatus', 'requestAuthorization', 'getAssetsPage', 'beginAssetScan', 'endAssetScan', 'listAlbums', 'createAlbum', 'isAlbumWritable', 'areAssetsAccessible', 'addExistingAssets', 'verifyAlbumMembership'];
+const expected = ['authorizationStatus', 'requestAuthorization', 'getAssetsPage', 'beginAssetScan', 'endAssetScan', 'listAlbums', 'createAlbum', 'isAlbumWritable', 'areAssetsAccessible', 'getPilotPreviews', 'addExistingAssets', 'verifyAlbumMembership'];
 test('all native methods match JS bridge', () => {
   for (const name of expected) {
     assert.match(swift, new RegExp('CAPPluginMethod\\(name: "'+name+'"'));
@@ -33,7 +33,9 @@ test('not even dead-code APIs that could destroy/copy PHAssets are shipped', () 
 });
 test('read-only metadata pagination does not request photo thumbnails or binary data', () => {
   assert.match(swift, /PHAsset\.fetchAssets\(with: self\.scanFetchOptions\(\)\)/);
-  assert.doesNotMatch(swift, /PHImageManager|requestImage\s*\(|PHCachingImageManager|base64EncodedString/);
+  const paging = swift.split('@objc func getAssetsPage(_ call: CAPPluginCall) {')[1]
+    .split('@objc func listAlbums(_ call: CAPPluginCall) {')[0];
+  assert.doesNotMatch(paging, /PHImageManager|requestImage\\s*\\(|PHCachingImageManager|base64EncodedString/);
   assert.match(swift, /limit <= maxPage/);
 });
 test('native module uses JS export and only carries iOS assets in package', () => {

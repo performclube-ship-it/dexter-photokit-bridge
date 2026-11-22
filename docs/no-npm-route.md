@@ -23,10 +23,21 @@ Any native customization must be reapplied and reviewed after each new export.
 - That run tested a locally packed tarball. Its SHA-256 is
   `12c440c58c0dec78ec9aea42284c9cceac608305808fe24de697695a4cfb5159`.
   The tarball has not been published to npm.
-- The additional local-pod CI uses an isolated integration fixture. A successful
-  unsigned iPhone SDK build proves compilation and linking through that route;
-  it does not establish that the real DEXTER export builds, that permissions work,
-  or that Photos operations work on an iPhone.
+- **The local-pod route passed**
+  [run 45028061579](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45028061579),
+  job `137225313413`, at 13:35 UTC on 22 November. Xcode 26.6 compiled the
+  unchanged bridge for the **iPhone SDK / arm64**, without code signing. Seven
+  new Node tests passed in that run. Checks confirmed the local pod, embedded
+  framework, exported Objective-C class, app linkage, preserved plugin
+  registrations, and byte-identical embedded web files. The own plugin was not
+  installed through npm or published. The tested package matches the SHA-256
+  above and the previously tested source files.
+- [Verified evidence](evidence/local-pod-2026-11-22.json) is retained in this
+  repository, with run/commit/artifact provenance. The downloaded artifact ZIP's
+  SHA-256 was verified against GitHub metadata before reading its contents.
+- This proof uses an isolated integration fixture. It does not establish that
+  the real DEXTER export builds, that permissions work, or that Photos operations
+  work on an iPhone.
 - The actual DEXTER native export has not yet been obtained or inspected. No
   signed build containing this bridge has been uploaded to TestFlight, and there
   is no evidence of a real-device pilot or public App Store approval.

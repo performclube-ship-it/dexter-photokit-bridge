@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "status": "verified",
+  "fixtureOnly": true,
+  "realDexterExport": false,
+  "signed": false,
+  "uploaded": false,
+  "executedOnDevice": false,
+  "photoKitBehaviorTested": false,
+  "fixtureAppId": "com.dexter.ci.localpod",
+  "capacitorVersion": "8.5.3",
+  "sdk": "iphoneos",
+  "architectures": "arm64",
+  "xcode": "Xcode 26.6\nBuild version 17F113",
+  "registration": {
+    "mechanism": "Capacitor 8.5.3 packageClassList",
+    "className": "DexterPhotoKitPlugin",
+    "before": [
+      "AppPlugin"
+    ],
+    "after": [
+      "AppPlugin",
+      "DexterPhotoKitPlugin"
+    ]
+  },
+  "pod": {
+    "name": "DexterPhotokitBridge",
+    "path": "../../vendor/dexter-photokit-bridge",
+    "podspecSha256": "8a184d2a9a778ec7e7d9dd114ae0e453af64fbb1a67c24e7d8ae046ce9d028ff",
+    "swiftSha256": "d15c38e9f9ad925218a123617d0c9c5b48fa186c671c8ff77613d62411834221"
+  },
+  "packageSha256": "12c440c58c0dec78ec9aea42284c9cceac608305808fe24de697695a4cfb5159",
+  "frameworkSha256": "43a95c8367169356ee68148f207532e5466b50fb0789775c0c5edf871560b493",
+  "webPayload": {
+    "unchanged": true,
+    "files": {
+      "cordova_plugins.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cordova.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "index.html": "c97eafc024acb3e787e39740f2ada0a246f9fefed778bcf4e4279a16b5febb45"
+    }
+  },
+  "checks": {
+    "ownPluginNotNpmInstalled": true,
+    "localPodResolved": true,
+    "swiftIncludedInPods": true,
+    "embeddedFramework": true,
+    "objectiveCClassPresent": true,
+    "applicationLinkedFramework": true
+  },
+  "limitations": [
+    "Disposable fixture only; original Floot project ZIP not examined.",
+    "Compile/link/configuration evidence only; no runtime bridge calls or iPhone PhotoKit validation.",
+    "Apple signing, TestFlight upload and App Store review are separate unperformed steps."
+  ],
+  "provenance": {
+    "repository": "performclube-ship-it/dexter-photokit-bridge",
+    "commit": "ea8d1af39cc440423d5f104466086c1e05fe9f9e",
+    "runId": 45028061579,
+    "jobId": 137225313413,
+    "artifactId": 14756950529,
+    "artifactZipSha256": "ac508e592495f367c738526938ad2a4151fac0ee9dd0608c62952145f77e0837",
+    "artifactVerified": true,
+    "sourceMatchesPreviouslyTestedTarball": true
+  }
+}

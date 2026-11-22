@@ -26,15 +26,34 @@ const REQUIRED_FILES = [
 ];
 const SENSITIVE_NAME = /(^|\/)(\.env(\..*)?|[^/]+\.(p8|p12|mobileprovision|keystore|jks))$/i;
 
+// Every ancestor is checked with lstat before reading any bytes. Checking only
+// the final file lets an untrusted export follow an ios/App or public symlink.
+function safePath(root, relative, type = 'file') {
+  const base = path.resolve(root);
+  const rootStat = fs.lstatSync(base);
+  assert.ok(rootStat.isDirectory() && !rootStat.isSymbolicLink(),
+    'Export root must be a real directory');
+  const segments = relative.split('/');
+  assert.ok(segments.length && segments.every(s => s && s !== '.' && s !== '..'),
+    'Unsafe export-relative path');
+  let target = base;
+  for (let i = 0; i < segments.length; i++) {
+    target = path.join(target, segments[i]);
+    const stat = fs.lstatSync(target);
+    assert.ok(!stat.isSymbolicLink(), 'Symlink is not accepted in export: ' + relative);
+    if (i < segments.length - 1 || type === 'directory')
+      assert.ok(stat.isDirectory(), 'Expected a directory in export: ' + relative);
+    else
+      assert.ok(stat.isFile(), 'Expected a regular file in export: ' + relative);
+  }
+  return target;
+}
 function fileText(root, relative) {
-  const target = path.resolve(root, relative);
-  assert.ok(target.startsWith(path.resolve(root) + path.sep), 'File escapes export root');
-  assert.ok(!fs.lstatSync(target).isSymbolicLink(), 'Symlink is not accepted in export: ' + relative);
-  return fs.readFileSync(target, 'utf8');
+  return fs.readFileSync(safePath(root, relative), 'utf8');
 }
 
 function collectWebFiles(root, maxFiles = 2000, maxBytes = 40 * 1024 * 1024) {
-  const base = path.resolve(root, 'ios/App/App/public');
+  const base = safePath(root, 'ios/App/App/public', 'directory');
   const files = [];
   let bytes = 0;
   function walk(directory) {
@@ -65,11 +84,8 @@ export function inspectFlootExport(root) {
   let nativeConfig;
   const criticalDigests = {};
   for (const relative of REQUIRED_FILES) {
-    const absolute = path.join(exportRoot, relative);
     try {
-      const stat = fs.lstatSync(absolute);
-      if (!stat.isFile()) throw new Error('not a regular file');
-      criticalDigests[relative] = digest(fs.readFileSync(absolute));
+      criticalDigests[relative] = digest(fs.readFileSync(safePath(exportRoot, relative)));
     } catch {
       problems.push('Missing or non-regular required file: ' + relative);
     }
@@ -89,6 +105,20 @@ export function inspectFlootExport(root) {
   if (rootConfig && !rootConfig.webDir)
     warnings.push('Root capacitor.config.json has no webDir; inspect build layout manually');
 
+  // Capacitor's JSON IDs are not authoritative for what iOS signs: the Xcode
+  // build settings can still target a DIFFERENT installed application.
+  let xcodeBundleIds = [];
+  try {
+    const project = fileText(exportRoot, 'ios/App/App.xcodeproj/project.pbxproj');
+    xcodeBundleIds = [...project.matchAll(/\bPRODUCT_BUNDLE_IDENTIFIER\s*=\s*(?:"([^"]+)"|([^;\s]+))\s*;/g)]
+      .map(match => match[1] || match[2]);
+    if (!xcodeBundleIds.length || xcodeBundleIds.some(id => id !== EXPECTED_APP_ID)) {
+      problems.push('Xcode PRODUCT_BUNDLE_IDENTIFIER is missing or differs from the DEXTER app; stop');
+    }
+  } catch {
+    problems.push('Cannot inspect Xcode bundle identity');
+  }
+
   let platform = null;
   try {
     const podfile = fileText(exportRoot, 'ios/App/Podfile');
@@ -104,7 +134,7 @@ export function inspectFlootExport(root) {
   let hasPhotoPermission = false;
   try {
     const plist = fileText(exportRoot, 'ios/App/App/Info.plist');
-    hasPhotoPermission = /<key>NSPhotoLibraryUsageDescription<\/key>/.test(plist);
+    hasPhotoPermission = /<key>\s*NSPhotoLibraryUsageDescription\s*<\/key>\s*<string>\s*[^<\s][^<]*<\/string>/.test(plist);
     if (!hasPhotoPermission)
       problems.push('Missing readable NSPhotoLibraryUsageDescription; inspect plist before compiling');
   } catch {
@@ -151,7 +181,7 @@ export function inspectFlootExport(root) {
 
   return {
     schemaVersion: 1, inspector: 'read-only-floot-export', expectedAppId: EXPECTED_APP_ID,
-    rootAppId: rootId, nativeAppId: nativeId, packageName, iosPlatform: platform,
+    rootAppId: rootId, nativeAppId: nativeId, xcodeBundleIds, packageName, iosPlatform: platform,
     hasPhotoPermission, webFileCount, webSha256, webMarkers,
     criticalDigests, sensitiveFilesPresent,
     status: problems.length ? 'BLOCKED' : 'REVIEW_REQUIRED',

@@ -296,3 +296,52 @@ test('an invalid begin token cannot be passed to native cleanup', async () => {
     e => e.code === 'INVALID_SCAN_SESSION');
   assert.deepEqual(log.end,[]);
 });
+
+
+test('cancellation during an asynchronous durable page write stops after exactly that saved batch', async () => {
+  const { plugin, log } = fakePlugin(300);
+  let cancelled = false;
+  const stored = [];
+  const progress = [];
+  const result = await scanSnapshotPages({
+    plugin, pageSize: 100,
+    async onPage({assets}) {
+      await Promise.resolve(); // simulate a page write whose completion is async
+      stored.push(...assets.map(a => a.id));
+      cancelled = true;
+    },
+    shouldStop() { return cancelled; },
+    onProgress(p) { progress.push(p.processed); }
+  });
+  assert.deepEqual({state:result.state, processed:result.processed,
+    pages:result.pages, complete:result.complete},
+    {state:'stopped', processed:100, pages:1, complete:false});
+  assert.equal(stored.length,100);
+  assert.equal(log.page.length,1, 'no second page may be requested after cancellation');
+  assert.deepEqual(progress, [], 'do not emit progress after cancellation');
+  assert.deepEqual(log.end, ['fresh-scan']);
+});
+
+test('cancellation during the final durable write never emits 100% or returns completed', async () => {
+  const { plugin, log } = fakePlugin(200);
+  let cancelled = false;
+  let saved = 0;
+  const progress = [];
+  const result = await scanSnapshotPages({
+    plugin, pageSize: 100,
+    async onPage({assets}) {
+      await Promise.resolve();
+      saved += assets.length;
+      if (saved === 200) cancelled = true;
+    },
+    async shouldStop() { return cancelled; },
+    onProgress(p) { progress.push(p.processed); }
+  });
+  assert.deepEqual({state:result.state, complete:result.complete,
+    processed:result.processed, pages:result.pages},
+    {state:'stopped', complete:false, processed:200, pages:2});
+  assert.equal(saved,200, 'persisted originals remain safely recorded');
+  assert.deepEqual(progress,[100], 'final percent requires no cancellation and verified native close');
+  assert.equal(log.page.length,2);
+  assert.deepEqual(log.end,['fresh-scan']);
+});

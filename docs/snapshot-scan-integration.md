@@ -15,8 +15,12 @@ Do not interpret JS unit tests as physical-device results.
   BEFORE advancing progress; a failed write stops without false success
 - stops safely at a user-requested boundary; when maxItems < total, reports
   `limit_reached` with `complete:false`, not a fully scanned library
-- attempts native snapshot cleanup on all success/failure paths; cleanup errors
-  (e.g., SCAN_EXPIRED) never mask the original error
+- requires the final native snapshot-close acknowledgment before reporting
+  `complete`; a Photos mutation during durable persistence makes close reject
+  and fails closed. The original page read/storage error remains primary
+- checks cancellation again after a native page arrives, before persisting it
+- releases native snapshot resources on success/failure; an invalidated close
+  cannot turn a partial or stale scan into a verified success
 - never reads pixels and never creates, changes, moves or deletes Apple photos
 
 **How to adopt inside the ORIGINAL Floot project when its action quota clears:**
@@ -54,3 +58,29 @@ that Apple PhotoKit permissions and changes have been tested on a real library.
 The original Floot Project ZIP is still needed for the no-npm native route;
 Floot's daily build-action quota reported on 22 November must be rechecked
 only after 23 November at 09:00 UTC (or after a confirmed quota change).
+
+## Final close consistency gate (22 Nov 2026, 20:48 UTC)
+
+PR [#7](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/7)
+was squash-merged into `main` at commit
+`cec220900b78db9000993e5e4d7b41330d321a56`.
+The scanner previously ignored *all* `endAssetScan` failures; a Photos
+mutation arriving while `onPage` durably wrote the last page could produce
+a misleading `complete` result. Swift now releases its fetch session and
+rejects `LIBRARY_CHANGED` when the close sees an invalidated snapshot.
+JavaScript requires an affirmative `ended: true` response before returning
+success and preserves any earlier read or persistence failure as the primary
+error. A stop requested during an in-flight native page prevents that page
+from being persisted.
+
+CI evidence on PR head `43aea8898a1bece80e72b25756f7f2dc2f15c9e2`:
+- [iOS Simulator + Node and CocoaPods](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45068028113): success
+- [iPhone arm64 SDK unsigned local-pod](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45068028067): success
+
+New regressions simulate invalidation during a slow durable write, refused
+native end acknowledgment, error precedence and cancellation during a page
+fetch. **This is a conservative final in-process check, not a transactional
+snapshot**: notifications delivered after the close can still occur. No
+TestFlight upload, real-device Photos test or Floot installation occurred.
+The real original Floot native ZIP is still required to integrate the bridge
+without publishing to npm; no native build quota was consumed in this round.

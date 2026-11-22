@@ -5,8 +5,8 @@ const root = new URL('../', import.meta.url);
 const swift = fs.readFileSync(new URL('../ios/Plugin/DexterPhotoKitPlugin.swift', import.meta.url), 'utf8');
 const definitions = fs.readFileSync(new URL('../dist/definitions.d.ts', import.meta.url), 'utf8');
 const metadata = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const expected = ['authorizationStatus', 'requestAuthorization', 'getAssetsPage', 'listAlbums', 'createAlbum', 'isAlbumWritable', 'areAssetsAccessible', 'addExistingAssets', 'verifyAlbumMembership'];
-test('all nine native methods match JS bridge', () => {
+const expected = ['authorizationStatus', 'requestAuthorization', 'getAssetsPage', 'beginAssetScan', 'endAssetScan', 'listAlbums', 'createAlbum', 'isAlbumWritable', 'areAssetsAccessible', 'addExistingAssets', 'verifyAlbumMembership'];
+test('all native methods match JS bridge', () => {
   for (const name of expected) {
     assert.match(swift, new RegExp('CAPPluginMethod\\(name: "'+name+'"'));
     assert.match(swift, new RegExp('\\@objc func '+name+'\\('));
@@ -32,7 +32,7 @@ test('not even dead-code APIs that could destroy/copy PHAssets are shipped', () 
   assert.match(swift, /PHAssetCollectionChangeRequest\.creationRequestForAssetCollection/);
 });
 test('read-only metadata pagination does not request photo thumbnails or binary data', () => {
-  assert.match(swift, /PHAsset\.fetchAssets\(with: options\)/);
+  assert.match(swift, /PHAsset\.fetchAssets\(with: self\.scanFetchOptions\(\)\)/);
   assert.doesNotMatch(swift, /PHImageManager|requestImage\s*\(|PHCachingImageManager|base64EncodedString/);
   assert.match(swift, /limit <= maxPage/);
 });
@@ -41,4 +41,25 @@ test('native module uses JS export and only carries iOS assets in package', () =
   assert.match(js, /registerPlugin\('DexterPhotoKit'\)/);
   assert.ok(metadata.files.includes('ios/'));
   assert.ok(metadata.files.includes('DexterPhotokitBridge.podspec'));
+});
+
+test('explicit scan token stays bound to one PHFetchResult and is invalidated on photo-library changes', () => {
+  assert.match(swift, /PHPhotoLibraryChangeObserver/);
+  assert.match(swift, /photoLibrary\.register\(self\)/);
+  assert.match(swift, /photoLibrary\.unregisterChangeObserver\(self\)/);
+  assert.match(swift, /photoLibraryDidChange\(_ changeInstance: PHChange\)/);
+  assert.match(swift, /activeScan\?\.invalidated = true/);
+  assert.match(swift, /let fetched = PHAsset\.fetchAssets\(with: self\.scanFetchOptions\(\)\)/);
+  assert.match(swift, /all = scan\.assets/);
+  assert.match(swift, /self\.activeScan\?\.token == token && self\.activeScan\?\.invalidated == false/);
+  assert.match(swift, /"LIBRARY_CHANGED"/);
+  assert.match(definitions, /beginAssetScan\(\): Promise<DexterAssetScan>/);
+  assert.match(definitions, /snapshotToken\?: string/);
+  assert.match(definitions, /endAssetScan\(input: \{ snapshotToken: string \}\)/);
+});
+test('changes do not silently fall back to a different snapshot for a supplied token', () => {
+  assert.match(swift, /if let token = requestedToken \{/);
+  assert.match(swift, /scan\.token == token, !scan\.invalidated/);
+  assert.match(swift, /"SCAN_EXPIRED"/);
+  assert.match(swift, /else \{\s*\/\/ Backward compatible, but each legacy call has an independent fetch\./);
 });

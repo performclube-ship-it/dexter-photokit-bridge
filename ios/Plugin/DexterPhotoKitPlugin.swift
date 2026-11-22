@@ -5,13 +5,15 @@ import Capacitor
 /// DEXTER PhotoKit bridge for Capacitor 8. The plugin never reads image pixels,
 /// uploads assets, duplicates assets, removes assets or deletes any photo.
 @objc(DexterPhotoKitPlugin)
-public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin {
+public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryChangeObserver {
     public let identifier = "DexterPhotoKitPlugin"
     public let jsName = "DexterPhotoKit"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "authorizationStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestAuthorization", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getAssetsPage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "beginAssetScan", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "endAssetScan", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listAlbums", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createAlbum", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "isAlbumWritable", returnType: CAPPluginReturnPromise),
@@ -23,6 +25,45 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin {
     private let photoLibrary = PHPhotoLibrary.shared()
     private let maxPage = 250
     private let maxAlbumBatch = 250
+
+    // One in-memory PHFetchResult per explicit scan. A page MUST use the same
+    // fetch result and opaque token as every other page in that scan.
+    // The serial queue protects both observer notifications and async reads.
+    private struct AssetScanSession {
+        let token: String
+        let assets: PHFetchResult<PHAsset>
+        var invalidated: Bool
+    }
+    private let scanStateQueue = DispatchQueue(label: "app.dexter.photokit.scan-state")
+    private var activeScan: AssetScanSession?
+    private var libraryRevision: UInt64 = 0
+
+    public override func load() {
+        super.load()
+        photoLibrary.register(self)
+    }
+
+    deinit {
+        photoLibrary.unregisterChangeObserver(self)
+    }
+
+    // Any Photos change invalidates a live scan conservatively, including
+    // ordering/metadata edits which do not change the asset count.
+    // No background processing is started and no user pixels are read.
+    public func photoLibraryDidChange(_ changeInstance: PHChange) {
+        scanStateQueue.sync {
+            libraryRevision &+= 1
+            if activeScan != nil { activeScan?.invalidated = true }
+        }
+    }
+
+    private func scanFetchOptions() -> PHFetchOptions {
+        let options = PHFetchOptions()
+        // PhotoKit supports ordering by creationDate. Ties remain stable
+        // within the retained PHFetchResult rather than across fresh fetches.
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        return options
+    }
 
     private func statusName(_ status: PHAuthorizationStatus) -> String {
         switch status {
@@ -116,9 +157,45 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Pagination uses PHFetchResult.object(at:) without requesting thumbnails.
-    /// Ordering is stable while the library does not change; UI must invalidate
-    /// its cursor on any concurrent photo-library changes.
+    /// Explicit new session. This replaces any previous in-memory scan.
+    /// The token is volatile: a process relaunch requires a fresh session.
+    @objc func beginAssetScan(_ call: CAPPluginCall) {
+        guard hasFullAccess(call) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let startingRevision = self.scanStateQueue.sync { self.libraryRevision }
+            let fetched = PHAsset.fetchAssets(with: self.scanFetchOptions())
+            let token = UUID().uuidString
+            let accepted = self.scanStateQueue.sync { () -> Bool in
+                guard self.libraryRevision == startingRevision else { return false }
+                self.activeScan = AssetScanSession(token: token, assets: fetched, invalidated: false)
+                return true
+            }
+            guard accepted else {
+                call.reject("A biblioteca mudou ao iniciar a leitura. Repete o início da análise.", "LIBRARY_CHANGED")
+                return
+            }
+            call.resolve(["snapshotToken": token, "total": fetched.count])
+        }
+    }
+
+    /// Frees the snapshot's resources; token mismatches cannot end another scan.
+    @objc func endAssetScan(_ call: CAPPluginCall) {
+        guard let token = call.getString("snapshotToken"), !token.isEmpty else {
+            call.reject("Identificador da sessão PhotoKit inválido.", "INVALID_SCAN_TOKEN")
+            return
+        }
+        let ended = scanStateQueue.sync { () -> Bool in
+            guard activeScan?.token == token else { return false }
+            activeScan = nil
+            return true
+        }
+        if ended { call.resolve(["ended": true]) }
+        else { call.reject("A sessão PhotoKit expirou ou foi substituída.", "SCAN_EXPIRED") }
+    }
+
+    /// The optional snapshotToken enables stable, change-detecting paging.
+    /// Existing callers without a token keep the legacy metadata-only API,
+    /// but MUST NOT claim a stable 10,000+ scan across library mutations.
     @objc func getAssetsPage(_ call: CAPPluginCall) {
         guard hasFullAccess(call) else { return }
         guard let offset = call.getInt("offset"), let limit = call.getInt("limit"),
@@ -126,10 +203,20 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Página PhotoKit inválida (limite máximo de 250).", "INVALID_PAGE")
             return
         }
+        let requestedToken = call.getString("snapshotToken")
         DispatchQueue.global(qos: .userInitiated).async {
-            let options = PHFetchOptions()
-            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-            let all = PHAsset.fetchAssets(with: options)
+            let all: PHFetchResult<PHAsset>
+            if let token = requestedToken {
+                let current = self.scanStateQueue.sync { self.activeScan }
+                guard let scan = current, scan.token == token, !scan.invalidated else {
+                    call.reject("A sessão de leitura expirou ou a biblioteca mudou. Reinicia a análise.", "SCAN_EXPIRED")
+                    return
+                }
+                all = scan.assets
+            } else {
+                // Backward compatible, but each legacy call has an independent fetch.
+                all = PHAsset.fetchAssets(with: self.scanFetchOptions())
+            }
             let total = all.count
             guard offset <= total else {
                 call.reject("O total da biblioteca mudou. Reinicia o processamento.", "LIBRARY_CHANGED")
@@ -160,6 +247,15 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin {
                         "width": asset.pixelWidth,
                         "height": asset.pixelHeight
                     ])
+                }
+            }
+            if let token = requestedToken {
+                let stillValid = self.scanStateQueue.sync {
+                    self.activeScan?.token == token && self.activeScan?.invalidated == false
+                }
+                guard stillValid else {
+                    call.reject("A biblioteca mudou durante a leitura. Nenhum progresso desta página foi confirmado.", "LIBRARY_CHANGED")
+                    return
                 }
             }
             call.resolve([

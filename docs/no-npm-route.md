@@ -161,3 +161,23 @@ will sign with the expected app identity or that a compiled JavaScript marker
 corresponds to an active code path. Review the real downloaded ZIP, resolve all
 warnings and perform an actual unsigned Xcode build and device tests before
 considering signing or TestFlight. The original Floot export is still missing.
+
+
+## 22 Nov 2026 — opt-in native photo-library snapshot contract
+
+The plugin now exposes **beginAssetScan / getAssetsPage(snapshotToken) / endAssetScan**.
+The native plugin retains one lazy `PHFetchResult<PHAsset>` in memory under an
+opaque per-process token. The Photos change observer invalidates that session
+conservatively on any photo-library change, even where total asset counts are
+unchanged. Page calls with an expired token fail closed rather than refetching
+a different order. Starting a new session deliberately replaces the old
+snapshot and old tokens cease to work. Returning a page also rechecks that its
+session was not invalidated during enumeration.
+
+**Important:** token-less calls remain backward compatible and DO NOT gain
+snapshot consistency. Floot's existing app must adopt begin/token/end before
+claiming stable pagination of 10,000+ images. Across app restarts, tokens expire
+by design; the UI must revalidate previous locally saved progress and start a
+new session rather than assuming the same native snapshot survived. This is
+source-level implementation pending Xcode CI and real device tests, not proof
+of an atomic PhotoKit transaction or permanent 10,000+ photo indexing.

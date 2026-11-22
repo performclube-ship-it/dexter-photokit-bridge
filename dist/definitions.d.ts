@@ -6,6 +6,7 @@ export interface DexterNativeAsset {
   width: number;
   height: number;
 }
+export interface DexterAssetScan { snapshotToken: string; total: number; }
 export interface DexterNativeAssetsPage {
   total: number;
   nextOffset: number | null;
@@ -14,7 +15,10 @@ export interface DexterNativeAssetsPage {
 export interface DexterPhotoKitPlugin {
   authorizationStatus(): Promise<{ status: PhotoAuthorizationStatus }>;
   requestAuthorization(): Promise<{ status: PhotoAuthorizationStatus }>;
-  getAssetsPage(input: { offset: number; limit: number }): Promise<DexterNativeAssetsPage>;
+  /** Begin a volatile fixed-result scan; save the token only for this live session. */
+  beginAssetScan(): Promise<DexterAssetScan>;
+  getAssetsPage(input: { offset: number; limit: number; snapshotToken?: string }): Promise<DexterNativeAssetsPage>;
+  endAssetScan(input: { snapshotToken: string }): Promise<{ ended: boolean }>;
   listAlbums(): Promise<{ albums: Array<{ id: string; title: string }> }>;
   createAlbum(input: { title: string }): Promise<{ id: string }>;
   isAlbumWritable(input: { albumId: string }): Promise<{ writable: boolean }>;

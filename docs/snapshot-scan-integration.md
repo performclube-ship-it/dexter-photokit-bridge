@@ -84,3 +84,17 @@ snapshot**: notifications delivered after the close can still occur. No
 TestFlight upload, real-device Photos test or Floot installation occurred.
 The real original Floot native ZIP is still required to integrate the bridge
 without publishing to npm; no native build quota was consumed in this round.
+
+## Final-progress acknowledgment and invalid-begin cleanup (22 Nov 2026)
+
+The scanner now defers the **last** `onProgress` event until native
+`endAssetScan` returns `{ended:true}`. This prevents showing 100% while a
+last-page durable write is still vulnerable to PhotoKit invalidation. A
+completed scan still requires independent UI state confirmation; an earlier
+page may be saved even if close fails. Stopped progress remains accurate.
+
+A malformed `beginAssetScan` total accompanied by a usable native token is
+explicitly cleaned up before rejecting. Invalid tokens are never forwarded to
+the native bridge; a cleanup exception cannot hide the original validation
+error. Synthetic Node regressions cover each case; real-device behavior is
+**not** inferred from these tests.

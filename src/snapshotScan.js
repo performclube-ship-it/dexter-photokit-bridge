@@ -77,9 +77,19 @@ export async function scanSnapshotPages({
   // IMPORTANT: no persistent cursor is accepted. Native tokens expire on
   // app relaunch and on PHPhotoLibraryChangeObserver invalidation.
   const scan = await plugin.beginAssetScan();
-  if (!scan || typeof scan.snapshotToken !== 'string' ||
-      scan.snapshotToken.length < 1 || scan.snapshotToken.length > 128 ||
-      !validInteger(scan.total, 0, Number.MAX_SAFE_INTEGER)) {
+  const tokenUsable = typeof scan?.snapshotToken === 'string' &&
+    scan.snapshotToken.length >= 1 && scan.snapshotToken.length <= 128;
+  if (!tokenUsable || !validInteger(scan.total, 0, Number.MAX_SAFE_INTEGER)) {
+    // A malformed total can still accompany a real native session. Close it
+    // before rejecting, otherwise the retained PHFetchResult survives until
+    // another scan starts or the plugin is released.
+    if (tokenUsable) {
+      try {
+        await plugin.endAssetScan({ snapshotToken: scan.snapshotToken });
+      } catch {
+        // Do not allow a failed cleanup to mask the invalid-session error.
+      }
+    }
     stop('INVALID_SCAN_SESSION', 'O PhotoKit devolveu uma sessão de leitura inválida.');
   }
 
@@ -89,12 +99,15 @@ export async function scanSnapshotPages({
   const seen = new Set();
   let processed = 0;
   let pages = 0;
+  let finalProgress = null;
+  let result = null;
 
   let primaryError = null;
   try {
     while (processed < target) {
       if (await shouldStop()) {
-        return { state: 'stopped', processed, total, target, pages, complete: false };
+        result = { state: 'stopped', processed, total, target, pages, complete: false };
+        break;
       }
       const limit = Math.min(pageSize, target - processed);
       const page = await plugin.getAssetsPage({
@@ -110,7 +123,8 @@ export async function scanSnapshotPages({
       // The user may have stopped while the native page was in flight.
       // Do not persist that new page after cancellation.
       if (await shouldStop()) {
-        return { state: 'stopped', processed, total, target, pages, complete: false };
+        result = { state: 'stopped', processed, total, target, pages, complete: false };
+        break;
       }
       // Progress is NOT reported until persistence resolves successfully.
       // The caller must store records and a merge checkpoint atomically.
@@ -124,13 +138,19 @@ export async function scanSnapshotPages({
       for (const id of ids) seen.add(id);
       processed = end;
       pages += 1;
-      await onProgress({ processed, total, target, pages });
+      const progress = { processed, total, target, pages };
+      // The final page has been stored, but the native snapshot has not yet
+      // been certified. Never display 100% progress before endAssetScan agrees.
+      if (processed === target) finalProgress = progress;
+      else await onProgress(progress);
     }
-    const complete = processed === total;
-    return {
-      state: complete ? 'complete' : 'limit_reached',
-      processed, total, target, pages, complete
-    };
+    if (!result) {
+      const complete = processed === total;
+      result = {
+        state: complete ? 'complete' : 'limit_reached',
+        processed, total, target, pages, complete
+      };
+    }
   } catch (error) {
     primaryError = error;
     throw error;
@@ -147,4 +167,8 @@ export async function scanSnapshotPages({
       if (!primaryError) throw endError;
     }
   }
+  // This signal can make the UI show 100%; only emit it after native close
+  // confirms the snapshot was not invalidated during the final durable write.
+  if (finalProgress) await onProgress(finalProgress);
+  return result;
 }

@@ -118,3 +118,21 @@ existing GitHub repository. Transfer this status into the original Floot
 - [Floot: creating mobile apps](https://floot.com/docs/mobile-apps/creating-mobile-apps-in-floot)
 - [Capacitor 8: custom native code](https://capacitorjs.com/docs/ios/custom-code)
 
+
+## Read-only original export preflight (22 November 2026)
+
+The repository now contains `scripts/inspect-floot-export.mjs`, a **read-only**
+validator for an extracted original Floot native Project zip. Run it locally
+with `node scripts/inspect-floot-export.mjs /path/to/extracted/export` after
+obtaining the user's file privately. It verifies both Capacitor app identities,
+checks core iOS/CocoaPods files, examines the already-embedded web bundle for
+native bridge and bulk-selection guard markers, computes source fingerprints,
+and flags possible signing files without exposing their content. A `BLOCKED`
+result must stop native integration; `REVIEW_REQUIRED` still requires a human
+review of actual export structure, the build date, app identity, signing,
+privacy/entitlements and photo-safety semantics. Marker detection is only a
+stale-bundle screening heuristic, not proof that all safety fixes are present.
+The inspector makes no filesystem changes and never uploads the export.
+Run `node --test test/export-inspector.test.mjs` for positive, stale-bundle,
+identity, missing-plist, secret and symlink regression cases. No native export
+had been supplied when this guard was written.

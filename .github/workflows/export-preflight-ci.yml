@@ -1,0 +1,30 @@
+name: DEXTER native export preflight (read-only)
+on:
+  push:
+    paths:
+      - '.github/workflows/export-preflight-ci.yml'
+      - 'scripts/inspect-floot-export.mjs'
+      - 'test/export-inspector.test.mjs'
+  pull_request:
+    paths:
+      - '.github/workflows/export-preflight-ci.yml'
+      - 'scripts/inspect-floot-export.mjs'
+      - 'test/export-inspector.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-read-only-inspector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse inspector and tests
+        run: |
+          node --check scripts/inspect-floot-export.mjs
+          node --check test/export-inspector.test.mjs
+      - name: Enforce export preflight gates on disposable fixtures
+        run: node --test test/export-inspector.test.mjs

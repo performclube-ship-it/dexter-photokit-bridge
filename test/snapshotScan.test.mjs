@@ -221,3 +221,78 @@ test('cancellation while a native page is in flight does not persist it', async 
   assert.equal(log.page.length,1);
   assert.deepEqual(log.end,['fresh-scan']);
 });
+
+test('final progress is emitted only after native close has verified the snapshot', async () => {
+  const {plugin, log} = fakePlugin(201);
+  let closed = false;
+  plugin.endAssetScan = async ({snapshotToken}) => {
+    log.end.push(snapshotToken);
+    closed = true;
+    return {ended:true};
+  };
+  const progress = [];
+  const result = await scanSnapshotPages({
+    plugin, pageSize:200, onPage() {},
+    onProgress(p) {
+      if (p.processed === 201) assert.equal(closed, true, '100% requires native close');
+      else assert.equal(closed, false);
+      progress.push(p.processed);
+    }
+  });
+  assert.deepEqual(progress, [200,201]);
+  assert.equal(result.complete, true);
+});
+
+test('native close invalidation never emits misleading last-page 100% progress', async () => {
+  const {plugin, log} = fakePlugin(2, {
+    async endAssetScan({snapshotToken}) {
+      log.end.push(snapshotToken);
+      const e = Error('LIBRARY_CHANGED');
+      e.code = 'LIBRARY_CHANGED';
+      throw e;
+    }
+  });
+  let stored = 0;
+  const progress = [];
+  await assert.rejects(scanSnapshotPages({
+    plugin, onPage({assets}) { stored += assets.length; },
+    onProgress(p) { progress.push(p.processed); }
+  }), e => e.code === 'LIBRARY_CHANGED');
+  assert.equal(stored, 2, 'a durable page may already be present but must not be certified');
+  assert.deepEqual(progress, [], 'no 100% acknowledgment before verified close');
+  assert.deepEqual(log.end, ['fresh-scan']);
+});
+
+test('a partial limit also reports final progress only after verified native close', async () => {
+  const {plugin, log} = fakePlugin(1000);
+  let closed = false;
+  plugin.endAssetScan = async ({snapshotToken}) => {
+    log.end.push(snapshotToken); closed = true; return {ended:true};
+  };
+  const progress = [];
+  const result = await scanSnapshotPages({
+    plugin, maxItems:100, onPage() {},
+    onProgress(p) { assert.equal(closed,true); progress.push(p.processed); }
+  });
+  assert.equal(result.state,'limit_reached');
+  assert.deepEqual(progress,[100]);
+});
+
+test('invalid begin metadata closes a usable native token before rejecting; cleanup failure cannot mask the reason', async () => {
+  const {plugin, log} = fakePlugin(5, {
+    async beginAssetScan() {log.begun++; return {snapshotToken:'usable-token', total:-3};},
+    async endAssetScan({snapshotToken}) {log.end.push(snapshotToken); throw Error('cleanup interrupted');}
+  });
+  await assert.rejects(scanSnapshotPages({plugin,onPage() {}}),
+    e => e.code === 'INVALID_SCAN_SESSION');
+  assert.deepEqual(log.end,['usable-token']);
+});
+
+test('an invalid begin token cannot be passed to native cleanup', async () => {
+  const {plugin, log} = fakePlugin(1, {
+    async beginAssetScan() {return {snapshotToken:'',total:1};}
+  });
+  await assert.rejects(scanSnapshotPages({plugin,onPage() {}}),
+    e => e.code === 'INVALID_SCAN_SESSION');
+  assert.deepEqual(log.end,[]);
+});

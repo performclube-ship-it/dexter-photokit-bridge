@@ -180,7 +180,8 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
 
     /// Frees the snapshot's resources; token mismatches cannot end another scan.
     @objc func endAssetScan(_ call: CAPPluginCall) {
-        guard let token = call.getString("snapshotToken"), !token.isEmpty else {
+        guard let token = call.getString("snapshotToken"),
+              !token.isEmpty, token.utf8.count <= 128 else {
             call.reject("Identificador da sessão PhotoKit inválido.", "INVALID_SCAN_TOKEN")
             return
         }
@@ -203,7 +204,21 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             call.reject("Página PhotoKit inválida (limite máximo de 250).", "INVALID_PAGE")
             return
         }
-        let requestedToken = call.getString("snapshotToken")
+        // A supplied token must be a non-empty string. A malformed token
+        // must never silently downgrade this scan into legacy unsnapshotted
+        // pagination, even when JS passes null, a number or an object.
+        let requestedToken: String?
+        if call.options.keys.contains("snapshotToken") {
+            guard let token = call.getString("snapshotToken"),
+                  !token.isEmpty, token.utf8.count <= 128 else {
+                call.reject("Identificador da sessão PhotoKit inválido.", "INVALID_SCAN_TOKEN")
+                return
+            }
+            requestedToken = token
+        } else {
+            // Legacy callers can still omit this field entirely.
+            requestedToken = nil
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             let all: PHFetchResult<PHAsset>
             if let token = requestedToken {

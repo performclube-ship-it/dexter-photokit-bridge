@@ -92,7 +92,7 @@ test('blocks a different Xcode bundle identifier even if both Capacitor IDs matc
 test('blocks Xcode builds with mixed identities or without an explicit app identity', t => {
   const {dir,write} = setup(t);
   write('ios/App/App.xcodeproj/project.pbxproj',
-    'PRODUCT_BUNDLE_IDENTIFIER = '+expected+';\\nPRODUCT_BUNDLE_IDENTIFIER = other.app;');
+    'PRODUCT_BUNDLE_IDENTIFIER = '+expected+';\nPRODUCT_BUNDLE_IDENTIFIER = other.app;');
   assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
   write('ios/App/App.xcodeproj/project.pbxproj', 'SWIFT_VERSION = 5.0;');
   assert.equal(inspectFlootExport(dir).status, 'BLOCKED');

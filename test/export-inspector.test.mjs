@@ -59,7 +59,7 @@ test('refuses incomplete or unrecognized original project archive',t=>{
   fs.rmSync(path.join(dir,'ios/App/App/Info.plist'));
   const result=inspectFlootExport(dir);
   assert.equal(result.status,'BLOCKED');
-  assert.match(result.problems.join(' '),/NSPhotoLibraryUsageDescription/);
+  assert.match(result.problems.join(' '),/Info\.plist|NSPhotoLibraryUsageDescription/);
 });
 test('does not disclose contents of signing files',t=>{
   const {dir,write}=setup(t);

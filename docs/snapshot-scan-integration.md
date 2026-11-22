@@ -98,3 +98,29 @@ explicitly cleaned up before rejecting. Invalid tokens are never forwarded to
 the native bridge; a cleanup exception cannot hide the original validation
 error. Synthetic Node regressions cover each case; real-device behavior is
 **not** inferred from these tests.
+
+## Verified final-progress fix (22 Nov 2026, 22:40 UTC)
+
+Merged [PR #9](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/9)
+at commit `5403a4e2bb90e09d597d015b272d23d9ca9e2f0f`.
+Before this fix the coordinator could dispatch the final `onProgress`
+*before* `endAssetScan` verified the native snapshot. A mutation during
+the last durable save could reject completion after UI progress had already
+reached 100%. The final progress event is now deferred until verified close.
+A malformed native `beginAssetScan` total with a usable token also triggers
+explicit cleanup, keeping the original validation error primary.
+
+Five new synthetic regressions run with the full Node test suite. Verified
+completed/success GitHub Actions runs for the PR-head commit
+`0fca30fc37d8d4b2322ee78762e6b559889d2ca3`:
+
+- [iOS Simulator CocoaPods/Node](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45078787035) — success
+- [Unsigned iPhone SDK local CocoaPod/Node](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45078787046) — success
+
+The corresponding push runs
+[45078777897](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45078777897)
+and [45078777892](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45078777892)
+also succeeded. These are **synthetic code tests and unsigned native builds**.
+The original Floot iOS export has still not been supplied, no PhotoKit test
+on a real iPhone has occurred, and this code is not in the TestFlight binary.
+The native plugin remains unpublished to npm. No photographs were modified.

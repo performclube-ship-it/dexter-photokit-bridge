@@ -63,3 +63,16 @@ test('changes do not silently fall back to a different snapshot for a supplied t
   assert.match(swift, /"SCAN_EXPIRED"/);
   assert.match(swift, /else \{\s*\/\/ Backward compatible, but each legacy call has an independent fetch\./);
 });
+
+test('explicit malformed snapshotToken cannot downgrade to legacy unsnapshotted paging', () => {
+  const body = swift.split('@objc func getAssetsPage(_ call: CAPPluginCall) {')[1]
+    .split('@objc func listAlbums(_ call: CAPPluginCall) {')[0];
+  assert.match(body, /call\.options\.keys\.contains\("snapshotToken"\)/);
+  assert.match(body, /guard let token = call\.getString\("snapshotToken"\)/);
+  assert.match(body, /!token\.isEmpty, token\.utf8\.count <= 128/);
+  assert.match(body, /"INVALID_SCAN_TOKEN"/);
+  assert.match(body, /requestedToken = nil/);
+  assert.ok(body.indexOf('if call.options.keys.contains("snapshotToken")') < body.indexOf('DispatchQueue.global(qos: .userInitiated).async'),
+    'Invalid inputs must fail synchronously before background photo-library access');
+  assert.match(swift, /@objc func endAssetScan[\s\S]*?token\.utf8\.count <= 128/);
+});

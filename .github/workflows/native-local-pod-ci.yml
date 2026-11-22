@@ -1,0 +1,59 @@
+name: Verify local PhotoKit pod without npm publication
+on:
+  push:
+    paths:
+      - '.github/workflows/native-local-pod-ci.yml'
+      - 'scripts/build-ios-local-pod-ci.sh'
+      - 'scripts/local-pod-fixture.mjs'
+      - 'test/local-pod-fixture.test.mjs'
+      - 'ios/**'
+      - 'src/**'
+      - 'dist/**'
+      - '*.podspec'
+      - 'package.json'
+  pull_request:
+    paths:
+      - '.github/workflows/native-local-pod-ci.yml'
+      - 'scripts/build-ios-local-pod-ci.sh'
+      - 'scripts/local-pod-fixture.mjs'
+      - 'test/local-pod-fixture.test.mjs'
+      - 'ios/**'
+      - 'src/**'
+      - 'dist/**'
+      - '*.podspec'
+      - 'package.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-local-pod-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  unsigned-iphone-local-pod:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test local pod path and native registration guards
+        run: |
+          bash -n scripts/build-ios-local-pod-ci.sh
+          node --test test/local-pod-fixture.test.mjs
+      - name: Show actual toolchain
+        run: |
+          xcodebuild -version
+          pod --version
+      - name: Compile and inspect unsigned iPhone fixture with local pod
+        run: bash scripts/build-ios-local-pod-ci.sh
+      - name: Save fixture evidence and build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexter-local-pod-${{ github.sha }}
+          path: ci-artifacts/local-pod/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,7 +1,27 @@
 name: Verify Swift PhotoKit bridge (Xcode)
+# Workflow-only edits can be checked with workflow_dispatch; changes to the local-pod
+# pipeline must not spend another build of this already validated npm-tarball path.
 on:
   push:
+    paths:
+      - 'scripts/build-ios-ci.sh'
+      - 'scripts/verify-plugin.sh'
+      - 'test/contract.test.mjs'
+      - 'ios/**'
+      - 'src/**'
+      - 'dist/**'
+      - '*.podspec'
+      - 'package.json'
   pull_request:
+    paths:
+      - 'scripts/build-ios-ci.sh'
+      - 'scripts/verify-plugin.sh'
+      - 'test/contract.test.mjs'
+      - 'ios/**'
+      - 'src/**'
+      - 'dist/**'
+      - '*.podspec'
+      - 'package.json'
   workflow_dispatch:
 permissions:
   contents: read

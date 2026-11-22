@@ -36,3 +36,21 @@ real user's 10,000+ photos have been processed. Test a small library in
 TestFlight first; increase to 10,000 only after device measurements of memory,
 permissions, interruption and iCloud availability. This does not remove the
 original private Project ZIP, Apple signing or TestFlight prerequisites.
+
+## Verified GitHub integration (22 Nov 2026)
+
+PR [#6](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/6)
+was merged to `main` at commit `d31e35a3ba621fa85ffe9c5aabeab0d3dda05238`.
+The following PR-head checks completed successfully against commit
+`7d3e91c78cb31fc6b6221dfc06e43041fc3f0b61`:
+
+- [iOS Simulator Xcode/CocoaPods + Node regressions](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45062371372) — success
+- [Unsigned iPhone/arm64 local CocoaPod + Node regressions](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45062371489) — success
+
+These runs validate packaging, compilation and the scanner against synthetic
+assets. They do **not** mean that the new JS coordinator is already used by
+DEXTER on Floot, that the native plugin is installed on an actual iPhone, or
+that Apple PhotoKit permissions and changes have been tested on a real library.
+The original Floot Project ZIP is still needed for the no-npm native route;
+Floot's daily build-action quota reported on 22 November must be rechecked
+only after 23 November at 09:00 UTC (or after a confirmed quota change).

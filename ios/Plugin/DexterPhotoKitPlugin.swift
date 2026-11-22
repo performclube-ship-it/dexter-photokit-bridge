@@ -1,9 +1,11 @@
 import Foundation
 import Photos
+import UIKit
 import Capacitor
 
-/// DEXTER PhotoKit bridge for Capacitor 8. The plugin never reads image pixels,
-/// uploads assets, duplicates assets, removes assets or deletes any photo.
+/// DEXTER PhotoKit bridge for Capacitor 8. Metadata scans never read pixels.
+/// Only the bounded explicit pilot preview endpoint renders local thumbnails.
+/// No API uploads, copies, removes or deletes original Photos assets.
 @objc(DexterPhotoKitPlugin)
 public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryChangeObserver {
     public let identifier = "DexterPhotoKitPlugin"
@@ -18,6 +20,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         CAPPluginMethod(name: "createAlbum", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "isAlbumWritable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "areAssetsAccessible", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPilotPreviews", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addExistingAssets", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "verifyAlbumMembership", returnType: CAPPluginReturnPromise)
     ]
@@ -34,6 +37,9 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
     // This protects calls within this plugin process, not other Photos apps.
     private let albumMutationQueue = DispatchQueue(label: "app.dexter.photokit.album-mutation")
     private var albumMutationInFlight = false
+
+    private let pilotPreviewQueue = DispatchQueue(label: "app.dexter.photokit.pilot-previews")
+    private var pilotPreviewInFlight = false
 
     // One in-memory PHFetchResult per explicit scan. A page MUST use the same
     // fetch result and opaque token as every other page in that scan.
@@ -396,6 +402,82 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         DispatchQueue.global(qos: .userInitiated).async {
             let fetched = self.fetchAssetsByID(ids)
             call.resolve(["accessible": fetched.count == ids.count])
+        }
+    }
+
+    private func acquirePilotPreview(_ call: CAPPluginCall) -> Bool {
+        let acquired = pilotPreviewQueue.sync { () -> Bool in
+            guard !pilotPreviewInFlight else { return false }
+            pilotPreviewInFlight = true
+            return true
+        }
+        if !acquired {
+            call.reject("A pré-visualização anterior ainda está em curso.", "PREVIEW_BUSY")
+        }
+        return acquired
+    }
+
+    private func releasePilotPreview() {
+        pilotPreviewQueue.sync { pilotPreviewInFlight = false }
+    }
+
+    /// Explicit, on-device previews only: up to 10 PHAssets and 128-pixel
+    /// JPEGs, never downloaded from iCloud. The JS caller must neither store
+    /// nor log the returned data URLs; drop them when the review closes.
+    @objc func getPilotPreviews(_ call: CAPPluginCall) {
+        guard hasFullAccess(call) else { return }
+        guard let ids = assetIds(call) else { return }
+        guard ids.count <= maxPilotWrite else {
+            call.reject("O piloto permite pré-visualizar até 10 fotografias.", "PILOT_PREVIEW_LIMIT")
+            return
+        }
+        guard acquirePilotPreview(call) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { self.releasePilotPreview() }
+            let fetched = self.fetchAssetsByID(ids)
+            guard fetched.count == ids.count else {
+                call.reject("Uma ou mais fotografias já não existem.", "PREVIEW_ASSET_NOT_FOUND")
+                return
+            }
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = false
+            options.isSynchronous = true
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .fast
+            let target = CGSize(width: 128, height: 128)
+            var previews: [[String: String]] = []
+            previews.reserveCapacity(ids.count)
+            for id in ids {
+                guard let asset = fetched[id] else {
+                    call.reject("Fotografia indisponível.", "PREVIEW_ASSET_NOT_FOUND")
+                    return
+                }
+                // Synchronous request on a background queue avoids callback
+                // races; bounded batch and no network keep memory controlled.
+                var image: UIImage?
+                var requiresCloud = false
+                manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { result, info in
+                    image = result
+                    requiresCloud = (info?[PHImageResultIsInCloudKey] as? Bool) == true
+                }
+                if let image = image,
+                   let reduced = image.preparingThumbnail(of: target),
+                   let jpeg = reduced.jpegData(compressionQuality: 0.65),
+                   jpeg.count <= 65536 {
+                    previews.append([
+                        "id": id,
+                        "status": "ready",
+                        "dataUrl": "data:image/jpeg;base64," + jpeg.base64EncodedString()
+                    ])
+                } else {
+                    previews.append([
+                        "id": id,
+                        "status": requiresCloud ? "icloud" : "unavailable"
+                    ])
+                }
+            }
+            call.resolve(["previews": previews])
         }
     }
 

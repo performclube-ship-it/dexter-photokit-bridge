@@ -23,6 +23,10 @@ export interface DexterPhotoKitPlugin {
   createAlbum(input: { title: string }): Promise<{ id: string }>;
   isAlbumWritable(input: { albumId: string }): Promise<{ writable: boolean }>;
   areAssetsAccessible(input: { assetIds: string[] }): Promise<{ accessible: boolean }>;
+  /** Explicit review: maximum 10 local-only 128px JPEGs, no iCloud download. Do not persist or upload dataUrl. */
+  getPilotPreviews(input: { assetIds: string[] }): Promise<{
+    previews: Array<{ id: string; status: 'ready' | 'icloud' | 'unavailable'; dataUrl?: string }>;
+  }>;
   /** Safety pilot: maximum 10 unique original PhotoKit assets per native write until real-device validation. */
   addExistingAssets(input: { albumId: string; assetIds: string[] }): Promise<{
     requestedCount: number;

@@ -112,7 +112,7 @@ test('native write pilot cannot bypass the reviewed ten-photo limit while read c
   const add = swift.split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[1]
     .split('@objc func verifyAlbumMembership(_ call: CAPPluginCall) {')[0];
   const readable = swift.split('@objc func areAssetsAccessible(_ call: CAPPluginCall) {')[1]
-    .split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[0];
+    .split('    private func acquirePilotPreview(_ call: CAPPluginCall) -> Bool {')[0];
   assert.match(swift, /private let maxPilotWrite = 10/);
   assert.match(swift, /private let maxAlbumBatch = 250/);
   assert.match(add, /guard ids\.count <= maxPilotWrite else \{/);

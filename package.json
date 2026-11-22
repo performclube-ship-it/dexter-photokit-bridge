@@ -1,0 +1,26 @@
+{
+  "name": "dexter-photokit-bridge",
+  "version": "0.1.0",
+  "description": "Safety-first iOS PhotoKit Capacitor 8 bridge for DEXTER: metadata paging and add existing assets to Apple Photos albums",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist/", "ios/", "DexterPhotoKit.podspec", "README.md", "LICENSE"],
+  "peerDependencies": {"@capacitor/core": "^8.0.0"},
+  "capacitor": {"ios": {"src": "ios"}},
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "verify": "bash scripts/verify-plugin.sh",
+    "pack:check": "npm pack --dry-run --json"
+  },
+  "publishConfig": {"access": "public"}
+}

@@ -206,3 +206,18 @@ actual DEXTER export or uploaded as a signed TestFlight build. Obtain the
 original private Project ZIP, inspect embedded web bundle/version, integrate
 the current bridge and adopt token-based pages with explicit reset/expiry
 handling before testing 10,000+ photos on a physical iPhone.
+
+
+## 22 November 2026 — native album-write race hardening (unsigned CI pending)
+
+The bridge now reserves a single album mutation at a time within its own iOS
+plugin instance. Concurrent create/add requests fail explicitly with
+`ALBUM_MUTATION_BUSY`, preventing two app requests from reading the same stale
+membership and reporting conflicting counts. Native album creation checks for
+an existing regular album with a case/diacritic-insensitive matching title
+before calling PhotoKit; retries fail with `ALBUM_ALREADY_EXISTS` instead of
+silently creating a duplicate. The lock is released on every early rejection,
+no-op and PhotoKit completion, including failed verification. The guard does
+not prevent other apps or another device from changing the Photos library;
+exact album IDs and post-operation membership checks remain mandatory.
+This is not a device test and does not change the built DEXTER app.

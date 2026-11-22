@@ -26,6 +26,12 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
     private let maxPage = 250
     private let maxAlbumBatch = 250
 
+    // A single in-flight album mutation prevents duplicate requests from
+    // racing on stale membership or creating two albums with one title.
+    // This protects calls within this plugin process, not other Photos apps.
+    private let albumMutationQueue = DispatchQueue(label: "app.dexter.photokit.album-mutation")
+    private var albumMutationInFlight = false
+
     // One in-memory PHFetchResult per explicit scan. A page MUST use the same
     // fetch result and opaque token as every other page in that scan.
     // The serial queue protects both observer notifications and async reads.
@@ -82,6 +88,22 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             return false
         }
         return true
+    }
+
+    private func acquireAlbumMutation(_ call: CAPPluginCall) -> Bool {
+        let acquired = albumMutationQueue.sync { () -> Bool in
+            guard !albumMutationInFlight else { return false }
+            albumMutationInFlight = true
+            return true
+        }
+        if !acquired {
+            call.reject("Já existe uma alteração aos álbuns Apple em curso. Aguarda que termine antes de repetir.", "ALBUM_MUTATION_BUSY")
+        }
+        return acquired
+    }
+
+    private func releaseAlbumMutation() {
+        albumMutationQueue.sync { albumMutationInFlight = false }
     }
 
     /// Validate identifiers to limit accidental/faulty app-side writes. A missing
@@ -308,23 +330,44 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             call.reject("Nome do álbum inválido (máximo 80 caracteres).", "INVALID_ALBUM_TITLE")
             return
         }
-        // Keep the new album ID in a box to avoid a captured mutable local across closures.
-        let box = AlbumIdentifierBox()
-        photoLibrary.performChanges({
-            let create = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title)
-            box.value = create.placeholderForCreatedAssetCollection.localIdentifier
-        }, completionHandler: { success, error in
-            guard success, let albumId = box.value else {
-                call.reject("Não foi possível criar o álbum Apple: \(error?.localizedDescription ?? "erro desconhecido")", "ALBUM_CREATE_FAILED")
-                return
+        guard acquireAlbumMutation(call) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            // An interrupted/retried request must not silently create an album
+            // with the same visible name. The app can refresh listAlbums and
+            // select the existing exact identifier after this explicit error.
+            let existing = PHAssetCollection.fetchAssetCollections(
+                with: .album, subtype: .albumRegular, options: nil
+            )
+            for i in 0..<existing.count {
+                if let existingName = existing.object(at: i).localizedTitle,
+                   title.compare(existingName,
+                       options: [.caseInsensitive, .diacriticInsensitive],
+                       range: nil, locale: Locale(identifier: "pt_PT")) == .orderedSame {
+                    self.releaseAlbumMutation()
+                    call.reject("Já existe um álbum Apple com este nome ou equivalente. Atualiza a lista antes de criar outro.", "ALBUM_ALREADY_EXISTS")
+                    return
+                }
             }
-            let verified = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumId], options: nil).firstObject
-            guard verified?.localizedTitle == title else {
-                call.reject("O álbum foi criado, mas não foi possível verificar o destino. Confirma na app Fotografias.", "ALBUM_CREATE_UNVERIFIED")
-                return
-            }
-            call.resolve(["id": albumId])
-        })
+            // Keep the new album ID in a box to avoid a captured mutable local
+            // across the PhotoKit transaction and its completion callback.
+            let box = AlbumIdentifierBox()
+            self.photoLibrary.performChanges({
+                let create = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title)
+                box.value = create.placeholderForCreatedAssetCollection.localIdentifier
+            }, completionHandler: { success, error in
+                defer { self.releaseAlbumMutation() }
+                guard success, let albumId = box.value else {
+                    call.reject("Não foi possível criar o álbum Apple: \(error?.localizedDescription ?? "erro desconhecido")", "ALBUM_CREATE_FAILED")
+                    return
+                }
+                let verified = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumId], options: nil).firstObject
+                guard verified?.localizedTitle == title else {
+                    call.reject("O álbum foi criado, mas não foi possível verificar o destino. Confirma na app Fotografias.", "ALBUM_CREATE_UNVERIFIED")
+                    return
+                }
+                call.resolve(["id": albumId])
+            })
+        }
     }
 
     @objc func isAlbumWritable(_ call: CAPPluginCall) {
@@ -349,15 +392,18 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             call.reject("O álbum Apple não permite adicionar fotografias.", "ALBUM_READ_ONLY")
             return
         }
+        guard acquireAlbumMutation(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let fetched = self.fetchAssetsByID(ids)
             guard fetched.count == ids.count else {
+                self.releaseAlbumMutation()
                 call.reject("Algumas fotografias já não existem neste iPhone. Nada foi alterado.", "ASSET_NOT_FOUND")
                 return
             }
             let presentBefore = self.membership(in: album, ids: ids)
             let toAdd = ids.filter { !presentBefore.contains($0) }.compactMap { fetched[$0] }
             if toAdd.isEmpty {
+                self.releaseAlbumMutation()
                 call.resolve([
                     "requestedCount": ids.count,
                     "addedCount": 0,
@@ -370,6 +416,9 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                 // PhotoKit adds references to pre-existing PHAssets; no copy or deletion.
                 request.addAssets(toAdd as NSArray)
             }, completionHandler: { success, error in
+                // Retain the mutation reservation until Photos has committed
+                // and we have independently verified the destination.
+                defer { self.releaseAlbumMutation() }
                 guard success else {
                     call.reject("A Apple não concluiu a alteração: \(error?.localizedDescription ?? "erro desconhecido")", "ALBUM_ADD_FAILED")
                     return

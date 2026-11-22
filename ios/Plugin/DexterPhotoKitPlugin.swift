@@ -210,13 +210,24 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             call.reject("Identificador da sessão PhotoKit inválido.", "INVALID_SCAN_TOKEN")
             return
         }
-        let ended = scanStateQueue.sync { () -> Bool in
-            guard activeScan?.token == token else { return false }
+        // Closing the session is the final consistency barrier. Changes
+        // during a slow durable JS write must not be reported as a complete scan.
+        let outcome = scanStateQueue.sync { () -> (matched: Bool, invalidated: Bool) in
+            guard let scan = activeScan, scan.token == token else {
+                return (false, false)
+            }
             activeScan = nil
-            return true
+            return (true, scan.invalidated)
         }
-        if ended { call.resolve(["ended": true]) }
-        else { call.reject("A sessão PhotoKit expirou ou foi substituída.", "SCAN_EXPIRED") }
+        guard outcome.matched else {
+            call.reject("A sessão PhotoKit expirou ou foi substituída.", "SCAN_EXPIRED")
+            return
+        }
+        guard !outcome.invalidated else {
+            call.reject("A biblioteca mudou antes da confirmação final da leitura.", "LIBRARY_CHANGED")
+            return
+        }
+        call.resolve(["ended": true])
     }
 
     /// The optional snapshotToken enables stable, change-detecting paging.

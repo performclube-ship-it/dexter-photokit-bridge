@@ -132,3 +132,14 @@ test('already-present album no-op must independently verify membership before re
   assert.ok(noOp.indexOf('guard confirmed.count') < noOp.indexOf('self.releaseAlbumMutation()'));
   assert.ok(noOp.indexOf('"ALBUM_NOOP_UNVERIFIED"') < noOp.indexOf('call.resolve('));
 });
+
+test('native scan close rejects invalidated sessions and releases retained assets', () => {
+  const close = swift.split('@objc func endAssetScan(_ call: CAPPluginCall) {')[1]
+    .split('@objc func getAssetsPage(_ call: CAPPluginCall) {')[0];
+  assert.match(close, /let outcome = scanStateQueue\.sync/);
+  assert.match(close, /return \(true, scan\.invalidated\)/);
+  assert.match(close, /activeScan = nil/);
+  assert.match(close, /guard !outcome\.invalidated else/);
+  assert.match(close, /"LIBRARY_CHANGED"/);
+  assert.ok(close.indexOf('guard !outcome.invalidated') < close.indexOf('call.resolve(["ended": true])'));
+});

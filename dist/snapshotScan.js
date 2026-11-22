@@ -90,6 +90,7 @@ export async function scanSnapshotPages({
   let processed = 0;
   let pages = 0;
 
+  let primaryError = null;
   try {
     while (processed < target) {
       if (await shouldStop()) {
@@ -106,6 +107,11 @@ export async function scanSnapshotPages({
         stop('INVALID_NATIVE_PAGE', 'A sequência PhotoKit mudou ou está incompleta. Reinicia a análise.');
       }
       const ids = validateAssets(page.assets, seen);
+      // The user may have stopped while the native page was in flight.
+      // Do not persist that new page after cancellation.
+      if (await shouldStop()) {
+        return { state: 'stopped', processed, total, target, pages, complete: false };
+      }
       // Progress is NOT reported until persistence resolves successfully.
       // The caller must store records and a merge checkpoint atomically.
       await onPage({
@@ -125,13 +131,20 @@ export async function scanSnapshotPages({
       state: complete ? 'complete' : 'limit_reached',
       processed, total, target, pages, complete
     };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    // An expired snapshot may legitimately refuse endAssetScan. Cleanup must
-    // never conceal a page validation/persistence failure or report success.
+    // Ending the native snapshot is the final validity acknowledgment: a
+    // library mutation during a slow durable write must fail closed instead
+    // of returning "complete". Keep original read/storage errors intact.
     try {
-      await plugin.endAssetScan({ snapshotToken });
-    } catch {
-      // The native session is process-local and has already expired/changed.
+      const closed = await plugin.endAssetScan({ snapshotToken });
+      if (!closed || closed.ended !== true) {
+        stop('SCAN_END_UNVERIFIED', 'O PhotoKit não confirmou o fecho da sessão de leitura.');
+      }
+    } catch (endError) {
+      if (!primaryError) throw endError;
     }
   }
 }

@@ -138,6 +138,13 @@ export async function scanSnapshotPages({
       for (const id of ids) seen.add(id);
       processed = end;
       pages += 1;
+      // Cancellation can arrive while onPage is durably saving this batch.
+      // Keep the acknowledged batch in the result, but never report a
+      // cancelled scan as complete (even when it saved the final page).
+      if (await shouldStop()) {
+        result = { state: 'stopped', processed, total, target, pages, complete: false };
+        break;
+      }
       const progress = { processed, total, target, pages };
       // The final page has been stored, but the native snapshot has not yet
       // been certified. Never display 100% progress before endAssetScan agrees.

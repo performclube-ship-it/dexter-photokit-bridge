@@ -76,3 +76,28 @@ test('explicit malformed snapshotToken cannot downgrade to legacy unsnapshotted 
     'Invalid inputs must fail synchronously before background photo-library access');
   assert.match(swift, /@objc func endAssetScan[\s\S]*?token\.utf8\.count <= 128/);
 });
+
+test('album creation and existing-asset association are single-flight with no silent duplicate album names', () => {
+  const create = swift.split('@objc func createAlbum(_ call: CAPPluginCall) {')[1]
+    .split('@objc func isAlbumWritable(_ call: CAPPluginCall) {')[0];
+  const add = swift.split('@objc func addExistingAssets(_ call: CAPPluginCall) {')[1]
+    .split('@objc func verifyAlbumMembership(_ call: CAPPluginCall) {')[0];
+  assert.match(swift, /private let albumMutationQueue = DispatchQueue/);
+  assert.match(swift, /private var albumMutationInFlight = false/);
+  assert.match(swift, /"ALBUM_MUTATION_BUSY"/);
+  assert.match(swift, /albumMutationQueue\\.sync[\\s\\S]*?albumMutationInFlight = true/);
+  assert.match(swift, /private func releaseAlbumMutation\\(\\)[\\s\\S]*?albumMutationInFlight = false/);
+  for (const body of [create, add]) {
+    assert.match(body, /guard acquireAlbumMutation\\(call\\) else \\{ return \\}/);
+    assert.match(body, /defer \\{ self\\.releaseAlbumMutation\\(\\) \\}/);
+    assert.ok(body.indexOf('guard acquireAlbumMutation(call)') < body.indexOf('self.photoLibrary.performChanges('));
+  }
+  assert.match(create, /PHAssetCollection\\.fetchAssetCollections\\(/);
+  assert.match(create, /options: \\[\\.caseInsensitive, \\.diacriticInsensitive\\]/);
+  assert.match(create, /"ALBUM_ALREADY_EXISTS"/);
+  assert.ok(create.indexOf('"ALBUM_ALREADY_EXISTS"') < create.indexOf('self.photoLibrary.performChanges('));
+  assert.match(create, /self\\.releaseAlbumMutation\\(\\)\\s*call\\.reject\\("Já existe/);
+  assert.match(add, /self\\.releaseAlbumMutation\\(\\)\\s*call\\.reject\\("Algumas fotografias/);
+  assert.match(add, /if toAdd\\.isEmpty \\{\\s*self\\.releaseAlbumMutation\\(\\)/);
+  assert.ok(add.indexOf('let presentAfter = self.membership') < add.indexOf('call.resolve([\\n                    "requestedCount"'));
+});

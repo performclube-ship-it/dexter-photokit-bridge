@@ -15,7 +15,9 @@ test('all nine native methods match JS bridge', () => {
 });
 test('Capacitor version, CocoaPods and deployment target', () => {
   assert.equal(metadata.peerDependencies['@capacitor/core'], '^8.0.0');
-  const podspec = fs.readFileSync(new URL('../DexterPhotoKit.podspec', import.meta.url), 'utf8');
+  // Capacitor 8.5.3 derives this pod name from the npm package id, not the JS plugin name.
+  const podspec = fs.readFileSync(new URL('../DexterPhotokitBridge.podspec', import.meta.url), 'utf8');
+  assert.match(podspec, /s\.name = 'DexterPhotokitBridge'/);
   assert.match(podspec, /deployment_target = '15\.5'/);
   assert.match(podspec, /s\.dependency 'Capacitor'/);
   assert.match(podspec, /s\.frameworks = 'Photos'/);
@@ -38,5 +40,5 @@ test('native module uses JS export and only carries iOS assets in package', () =
   const js = fs.readFileSync(new URL('../dist/index.js', import.meta.url), 'utf8');
   assert.match(js, /registerPlugin\('DexterPhotoKit'\)/);
   assert.ok(metadata.files.includes('ios/'));
-  assert.ok(metadata.files.includes('DexterPhotoKit.podspec'));
+  assert.ok(metadata.files.includes('DexterPhotokitBridge.podspec'));
 });

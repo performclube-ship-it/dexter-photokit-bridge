@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name = 'DexterPhotoKit'
+  s.name = 'DexterPhotokitBridge'
   s.version = '0.1.0'
   s.summary = 'Capacitor 8 PhotoKit metadata/album-association bridge for DEXTER'
   s.description = 'On-device metadata paging and explicit association of existing PHAssets into user albums, without copying or deleting originals.'

@@ -36,7 +36,11 @@ JS
 npm install --no-audit --no-fund "$FIXTURE/dexter-photokit-bridge-0.1.0.tgz"
 npx cap sync ios
 # Proof: the generated Pods config must include this exact local plugin, not an npm placeholder.
-grep -R -q 'DexterPhotoKit' ios/App/Podfile ios/App/Podfile.lock ios/App/Pods/Local\ Podspecs 2>/dev/null || {
+grep -R -q 'DexterPhotokitBridge' ios/App/Podfile ios/App/Podfile.lock ios/App/Pods/Local\ Podspecs 2>/dev/null || {
   echo 'ERROR: plugin missing from CocoaPods installation' >&2; exit 1;
 }
 xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath "$FIXTURE/DerivedData" CODE_SIGNING_ALLOWED=NO build
+# Retain only the exact package whose native code passed the build, for publication.
+mkdir -p "$ROOT/ci-artifacts"
+cp "$FIXTURE/dexter-photokit-bridge-0.1.0.tgz" "$ROOT/ci-artifacts/"
+(cd "$ROOT/ci-artifacts" && shasum -a 256 dexter-photokit-bridge-0.1.0.tgz > SHA256SUMS)

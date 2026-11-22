@@ -28,3 +28,10 @@ jobs:
           pod --version
       - name: Build iOS Simulator fixture with plugin + CocoaPods
         run: bash scripts/build-ios-ci.sh
+      - name: Save the package that passed Xcode
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexter-photokit-bridge-${{ github.sha }}
+          path: ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14

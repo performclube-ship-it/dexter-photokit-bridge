@@ -101,6 +101,18 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         return true
     }
 
+
+    /// Best-effort authorization recheck before returning Photos metadata or
+    /// image-derived data from an asynchronous read. This is NOT an atomic
+    /// authorization lease: native PhotoKit still controls actual access.
+    private func permissionRevoked(_ call: CAPPluginCall) -> Bool {
+        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else {
+            call.reject("O acesso às Fotografias mudou durante a operação. Confirma as permissões e reinicia.", "PHOTOS_PERMISSION_CHANGED")
+            return true
+        }
+        return false
+    }
+
     private func acquireAlbumMutation(_ call: CAPPluginCall) -> Bool {
         let acquired = albumMutationQueue.sync { () -> Bool in
             guard !albumMutationInFlight else { return false }
@@ -195,8 +207,10 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
     @objc func beginAssetScan(_ call: CAPPluginCall) {
         guard hasFullAccess(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
+            guard !self.permissionRevoked(call) else { return }
             let startingRevision = self.scanStateQueue.sync { self.libraryRevision }
             let fetched = PHAsset.fetchAssets(with: self.scanFetchOptions())
+            guard !self.permissionRevoked(call) else { return }
             let token = UUID().uuidString
             let accepted = self.scanStateQueue.sync { () -> Bool in
                 guard self.libraryRevision == startingRevision else { return false }
@@ -205,6 +219,13 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             }
             guard accepted else {
                 call.reject("A biblioteca mudou ao iniciar a leitura. Repete o início da análise.", "LIBRARY_CHANGED")
+                return
+            }
+            if self.permissionRevoked(call) {
+                // The scan token must not remain usable after a permission loss.
+                self.scanStateQueue.sync {
+                    if self.activeScan?.token == token { self.activeScan = nil }
+                }
                 return
             }
             call.resolve(["snapshotToken": token, "total": fetched.count])
@@ -235,6 +256,8 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             call.reject("A biblioteca mudou antes da confirmação final da leitura.", "LIBRARY_CHANGED")
             return
         }
+        // The native session has already been released even on rejection.
+        guard !permissionRevoked(call) else { return }
         call.resolve(["ended": true])
     }
 
@@ -264,6 +287,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             requestedToken = nil
         }
         DispatchQueue.global(qos: .userInitiated).async {
+            guard !self.permissionRevoked(call) else { return }
             let all: PHFetchResult<PHAsset>
             if let token = requestedToken {
                 let current = self.scanStateQueue.sync { self.activeScan }
@@ -317,6 +341,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                     return
                 }
             }
+            guard !self.permissionRevoked(call) else { return }
             call.resolve([
                 "total": total,
                 "nextOffset": end < total ? end as Any : NSNull(),
@@ -337,6 +362,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                     result.append(["id": album.localIdentifier, "title": name])
                 }
             }
+            guard !self.permissionRevoked(call) else { return }
             call.resolve(["albums": result])
         }
     }
@@ -403,6 +429,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         guard let ids = assetIds(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let fetched = self.fetchAssetsByID(ids)
+            guard !self.permissionRevoked(call) else { return }
             call.resolve(["accessible": fetched.count == ids.count])
         }
     }
@@ -451,6 +478,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             var previews: [[String: String]] = []
             previews.reserveCapacity(ids.count)
             for id in ids {
+                guard !self.permissionRevoked(call) else { return }
                 guard let asset = fetched[id] else {
                     call.reject("Fotografia indisponível.", "PREVIEW_ASSET_NOT_FOUND")
                     return
@@ -479,6 +507,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                     ])
                 }
             }
+            guard !self.permissionRevoked(call) else { return }
             call.resolve(["previews": previews])
         }
     }
@@ -517,6 +546,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             // Process one downscaled image at a time. Do not retain pixels in
             // the result or persist/transmit the inferred labels.
             for id in ids {
+                guard !self.permissionRevoked(call) else { return }
                 guard let asset = fetched[id] else {
                     call.reject("Fotografia indisponível.", "CLASSIFY_ASSET_NOT_FOUND")
                     return
@@ -555,6 +585,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                     results.append(["id": id, "status": "unavailable", "labels": []])
                 }
             }
+            guard !self.permissionRevoked(call) else { return }
             call.resolve(["results": results])
         }
     }
@@ -629,6 +660,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         guard let album = regularAlbum(call), let ids = assetIds(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let present = self.membership(in: album, ids: ids)
+            guard !self.permissionRevoked(call) else { return }
             call.resolve([
                 "complete": present.count == ids.count,
                 "presentCount": present.count,

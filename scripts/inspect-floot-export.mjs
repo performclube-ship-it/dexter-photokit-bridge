@@ -182,12 +182,27 @@ export function inspectFlootExport(root) {
   let sensitiveFilesPresent = false;
   // A file export may legitimately contain signing material: never send it
   // to the public plugin repository or log its contents.
-  const probe = [exportRoot, path.join(exportRoot, 'ios'), path.join(exportRoot, 'ios/App')];
-  for (const dir of probe) {
-    if (!fs.existsSync(dir)) continue;
-    for (const item of fs.readdirSync(dir)) {
-      if (SENSITIVE_NAME.test(path.relative(exportRoot, path.join(dir, item)).replaceAll(path.sep,'/')))
-        sensitiveFilesPresent = true;
+  // Apply the same no-symlink rule to this probe as to required files.
+  // A blocked export must not cause even a directory listing outside it.
+  for (const relative of ['', 'ios', 'ios/App']) {
+    try {
+      let dir;
+      if (relative === '') {
+        const stat = fs.lstatSync(exportRoot);
+        assert.ok(stat.isDirectory() && !stat.isSymbolicLink(),
+          'Export root must be a real directory');
+        dir = exportRoot;
+      } else {
+        dir = safePath(exportRoot, relative, 'directory');
+      }
+      for (const item of fs.readdirSync(dir)) {
+        const name = relative ? relative + '/' + item : item;
+        if (SENSITIVE_NAME.test(name)) sensitiveFilesPresent = true;
+      }
+    } catch {
+      // Missing, unreadable or substituted directories are not safe to
+      // inspect. Do not follow them or include filesystem error details.
+      problems.push('Cannot safely inspect potential signing files in: ' + (relative || 'export root'));
     }
   }
   if (sensitiveFilesPresent)

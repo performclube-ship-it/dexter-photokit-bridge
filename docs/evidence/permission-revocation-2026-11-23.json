@@ -1,0 +1,50 @@
+{
+  "project": "DEXTER",
+  "flootProjectId": "7f273ff5-3179-4961-b47b-f464cf562250",
+  "dateUTC": "2026-11-23",
+  "scope": "native PhotoKit read-permission revocation race; existing bridge only",
+  "pr": "https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/16",
+  "sourceCommit": "75c6fe07769361d319c299924aa0625aa44aaf33",
+  "mergedCommit": "2f2bcf60cae1195bea6f7d6c2951bfd19183daba",
+  "change": [
+    "reject asynchronous Photos reads when full authorization is no longer present",
+    "check permission per local thumbnail/Vision asset and before returning a result",
+    "release newly created native snapshot token on late revocation",
+    "close retained snapshot before rejecting after permission loss"
+  ],
+  "ci": [
+    {
+      "name": "Simulator/CocoaPods + Node, pull request",
+      "run": 45119884998,
+      "status": "success",
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45119884998"
+    },
+    {
+      "name": "unsigned iPhone/arm64 local pod + Node, pull request",
+      "run": 45119884983,
+      "status": "success",
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45119884983"
+    },
+    {
+      "name": "Simulator/CocoaPods + Node, push",
+      "run": 45119865731,
+      "status": "success",
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45119865731"
+    },
+    {
+      "name": "unsigned iPhone/arm64 local pod + Node, push",
+      "run": 45119865703,
+      "status": "success",
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45119865703"
+    }
+  ],
+  "testCoverage": "6 new static Swift-contract regressions; Node suite run within CI",
+  "limitations": [
+    "compiled plugin only; NOT integrated into original Floot app",
+    "no actual user images accessed or changed; no real-iPhone Photos permission test",
+    "no signed app build, no new TestFlight upload, no App Store submission",
+    "native Floot Project ZIP still required for no-npm integration",
+    "authorization check is best-effort and not an atomic Photos security lease",
+    "existing Floot quota blocked until 2026-11-23 09:00 UTC in last confirmed status"
+  ]
+}

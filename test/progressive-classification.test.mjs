@@ -88,3 +88,46 @@ test('full Photos authorization and 1–10 size gate are required',async()=>{
   await assert.rejects(classifyLocalPages({plugin:full,assetPages:pagesOf(ids(1)),expectedCount:1,
     batchSize:11,onReviewBatch:ack}),e=>e.code==='INVALID_CLASSIFICATION_CONFIGURATION');
 });
+
+test('zero selected IDs cannot silently hide a nonempty page source',async()=>{
+  const {plugin,calls}=mock();
+  const empty=await classifyLocalPages({plugin,assetPages:pagesOf([]),expectedCount:0,
+    onReviewBatch:ack});
+  assert.equal(empty.state,'complete');
+  assert.equal(empty.processed,0);
+  await assert.rejects(classifyLocalPages({plugin,assetPages:pagesOf(ids(1)),
+    expectedCount:0,onReviewBatch:ack}),e=>e.code==='EXCESS_ASSET_SELECTION');
+  assert.deepEqual(calls,[]);
+});
+
+test('100 percent is deferred until every source page is validated',async()=>{
+  const {plugin}=mock();let exhausted=false;
+  async function* source(){yield ids(10);exhausted=true;}
+  const notified=[];
+  const outcome=await classifyLocalPages({plugin,assetPages:source(),expectedCount:10,
+    onReviewBatch:ack,
+    onProgress:async p=>notified.push({processed:p.processed,exhausted})});
+  assert.equal(outcome.state,'complete');
+  assert.deepEqual(notified,[{processed:10,exhausted:true}]);
+});
+
+test('unexpected trailing IDs cannot cause false full-progress signals',async()=>{
+  const {plugin}=mock();let acknowledged=0;const notified=[];
+  await assert.rejects(classifyLocalPages({plugin,assetPages:pagesOf(ids(11),10),
+    expectedCount:10,
+    onReviewBatch:async()=>{acknowledged++;return {acknowledged:true}},
+    onProgress:async p=>notified.push(p.processed)}),
+  e=>e.code==='EXCESS_ASSET_SELECTION');
+  assert.equal(acknowledged,1); // Earlier acknowledged review remains durable.
+  assert.deepEqual(notified,[]); // No false 100% before the source ends.
+});
+
+test('late cancellation never publishes the final count',async()=>{
+  const {plugin}=mock();let cancelled=false;const notices=[];
+  const r=await classifyLocalPages({plugin,assetPages:pagesOf(ids(10)),
+    expectedCount:10,shouldStop:()=>cancelled,
+    onReviewBatch:async()=>{cancelled=true;return {acknowledged:true}},
+    onProgress:p=>notices.push(p.processed)});
+  assert.equal(r.state,'stopped');assert.equal(r.processed,10);
+  assert.deepEqual(notices,[]);
+});

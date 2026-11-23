@@ -131,3 +131,38 @@ test('late cancellation never publishes the final count',async()=>{
   assert.equal(r.state,'stopped');assert.equal(r.processed,10);
   assert.deepEqual(notices,[]);
 });
+
+test('preflight rejects a trailing duplicate without classifying or reviewing the same page', async () => {
+  const {plugin, calls} = mock();
+  let reviews = 0;
+  const page = [...ids(10), 'local-4'];
+  await assert.rejects(classifyLocalPages({
+    plugin, assetPages:[page], expectedCount:11,
+    onReviewBatch:async()=>{reviews++;return {acknowledged:true}}
+  }),e=>e.code==='INVALID_ASSET_PAGE');
+  assert.deepEqual(calls,[]);
+  assert.equal(reviews,0);
+});
+
+test('preflight rejects an excess selection before the first native Vision batch', async () => {
+  const {plugin, calls} = mock();
+  let reviews=0;
+  await assert.rejects(classifyLocalPages({
+    plugin, assetPages:[ids(11)],expectedCount:10,
+    onReviewBatch:async()=>{reviews++;return {acknowledged:true}}
+  }),e=>e.code==='EXCESS_ASSET_SELECTION');
+  assert.deepEqual(calls,[]);
+  assert.equal(reviews,0);
+});
+
+test('page preflight preserves acknowledgements from earlier valid pages only', async () => {
+  const {plugin, calls} = mock();
+  let reviews=0;
+  await assert.rejects(classifyLocalPages({
+    plugin, assetPages:[ids(10), ['local-10','local-11','local-10']],
+    expectedCount:13,
+    onReviewBatch:async()=>{reviews++;return {acknowledged:true}}
+  }),e=>e.code==='INVALID_ASSET_PAGE');
+  assert.equal(reviews,1);
+  assert.deepEqual(calls,[ids(10)]);
+});

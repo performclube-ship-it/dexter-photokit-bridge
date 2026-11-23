@@ -251,3 +251,38 @@ before integration, and the Floot web implementation still needs to adopt the
 snapshot token API. No new signed TestFlight build, live photo mutation or
 App Store submission occurred in this round. The Floot account-wide action
 limit reported earlier is separate and must clear before updating its code.
+
+## 23 November 2026 — verified full-count Vision progress (PR #15)
+
+`classifyLocalPages` previously emitted `onProgress(processed === expectedCount)`
+immediately after acknowledging the last native batch, before exhausting the
+supplied async source. If a later page unexpectedly contained an extra
+`PHAsset.localIdentifier`, a user-facing 100% could be shown before the
+selection failed with `EXCESS_ASSET_SELECTION`. A claimed empty selection
+could also short-circuit without checking that its source was truly empty.
+
+The existing helper now reserves **final progress** until the source is
+completely exhausted and its full ID count validated. A zero-count selection
+also validates that no pages contain hidden IDs. An in-flight cancellation
+after review suppresses the final progress event. Previously acknowledged
+local review batches remain counted, not silently discarded. This makes no
+PhotoKit album writes and does not store labels, upload images or alter originals.
+
+Four new Node regressions cover zero-count mismatches, normal final progress
+after source exhaustion, trailing unexpected IDs and cancellation. Source and
+packaged JavaScript remain identical. Both **actual CI workflows passed** for
+PR head `eafd0974aee554788b25a9e9ad32bbcb30084dff`:
+[unsigned iPhone local-pod run 45113311831](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45113311831)
+and [iOS Simulator run 45113311860](https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45113311860).
+Merged to main through
+[PR #15](https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/15),
+commit `2cfd73e5d7220936115aec2e69820c89425121e1`.
+
+**Still blocked:** these were unsigned fixture builds and synthetic tests,
+not physical iPhone PhotoKit operations. The original Floot DEXTER native
+Project ZIP still needs private inspection. Current installed iOS build does
+not contain this bridge; no new Floot build, Apple signing, TestFlight upload,
+real-photo operation, memory measurement or public App Store submission was
+performed. The published web release is unchanged. Account-wide Floot action
+quota was previously refused until 23 November 09:00 UTC; do not claim a
+fresh typecheck until it actually runs.

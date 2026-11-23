@@ -111,14 +111,23 @@ export async function classifyLocalPages({
     if (!Array.isArray(page) || page.length === 0 || page.length > 250) {
       fail('INVALID_ASSET_PAGE', 'Página de identificadores inválida para reconhecimento.');
     }
+    // Fail an entire source page BEFORE classifying or acknowledging any of
+    // its IDs. A trailing duplicate or unreviewed excess must not cause
+    // earlier IDs from the SAME page to enter a durable review queue.
+    // This is bounded to the native 250-ID page size, not the whole library.
+    const idsInPage = new Set();
     for (const id of page) {
-      if (typeof id !== 'string' || !id.length || id.length > 256 || seen.has(id)) {
+      if (typeof id !== 'string' || !id.length || id.length > 256 ||
+          seen.has(id) || idsInPage.has(id)) {
         fail('INVALID_ASSET_PAGE', 'Identificador ausente, duplicado ou inválido na seleção.');
       }
+      idsInPage.add(id);
+    }
+    if (seen.size + idsInPage.size > expectedCount) {
+      fail('EXCESS_ASSET_SELECTION', 'A origem contém mais fotografias do que as confirmadas.');
+    }
+    for (const id of page) {
       seen.add(id);
-      if (seen.size > expectedCount) {
-        fail('EXCESS_ASSET_SELECTION', 'A origem contém mais fotografias do que as confirmadas.');
-      }
       pending.push(id);
       if (pending.length === batchSize) {
         if (!(await flush(pending))) return state('stopped');

@@ -164,3 +164,38 @@ test('does not scan the packaged web bundle through a directory symlink', t => {
   assert.match(result.problems.join(' '),/Symlink/);
   assert.equal(result.webFileCount,0);
 });
+
+
+test('secret-name probe never enumerates a substituted ios/App directory', t => {
+  const {dir}=setup(t);
+  const outside=fs.mkdtempSync(path.join(os.tmpdir(),'dexter-foreign-signing-'));
+  t.after(()=>fs.rmSync(outside,{force:true,recursive:true}));
+  fs.writeFileSync(path.join(outside,'foreign-private.p8'),'not part of the export');
+  fs.rmSync(path.join(dir,'ios/App'),{recursive:true,force:true});
+  fs.symlinkSync(outside,path.join(dir,'ios/App'),'dir');
+  const result=inspectFlootExport(dir);
+  assert.equal(result.status,'BLOCKED');
+  assert.equal(result.sensitiveFilesPresent,false,'must not enumerate foreign signing filenames');
+  assert.match(result.problems.join(' '),/Cannot safely inspect potential signing files in: ios\/App/);
+});
+
+test('secret-name probe never enumerates a symlinked export root', t => {
+  const {dir,write}=setup(t);
+  write('foreign-private.p8','not part of the requested export root');
+  const parent=fs.mkdtempSync(path.join(os.tmpdir(),'dexter-root-link-'));
+  t.after(()=>fs.rmSync(parent,{force:true,recursive:true}));
+  const linked=path.join(parent,'export');
+  fs.symlinkSync(dir,linked,'dir');
+  const result=inspectFlootExport(linked);
+  assert.equal(result.status,'BLOCKED');
+  assert.equal(result.sensitiveFilesPresent,false);
+  assert.equal(result.webFileCount,0);
+});
+
+test('missing export yields a blocked verdict instead of throwing during secret probe', t => {
+  const {dir}=setup(t);
+  const result=inspectFlootExport(path.join(dir,'absent'));
+  assert.equal(result.status,'BLOCKED');
+  assert.equal(result.sensitiveFilesPresent,false);
+  assert.equal(result.safeToShip,false);
+});

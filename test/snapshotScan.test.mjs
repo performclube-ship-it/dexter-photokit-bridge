@@ -345,3 +345,46 @@ test('cancellation during the final durable write never emits 100% or returns co
   assert.equal(log.page.length,2);
   assert.deepEqual(log.end,['fresh-scan']);
 });
+
+
+test('cancellation during native snapshot close keeps durable pages but withholds final progress', async () => {
+  const {plugin, log} = fakePlugin(200);
+  let cancelled = false;
+  let saved = 0;
+  plugin.endAssetScan = async ({snapshotToken}) => {
+    log.end.push(snapshotToken);
+    await Promise.resolve();
+    cancelled = true; // user presses Cancel while native close is awaited
+    return {ended:true};
+  };
+  const progress = [];
+  const result = await scanSnapshotPages({
+    plugin, pageSize:100,
+    shouldStop() { return cancelled; },
+    onPage({assets}) { saved += assets.length; },
+    onProgress(p) { progress.push(p.processed); }
+  });
+  assert.deepEqual(result, {
+    state:'stopped',processed:200,total:200,target:200,pages:2,complete:false
+  });
+  assert.equal(saved,200, 'already persisted pages must be preserved');
+  assert.deepEqual(progress,[100], '100% must not be shown after cancellation');
+  assert.deepEqual(log.end,['fresh-scan']);
+});
+
+test('empty-library scan cancelled during native close is stopped, not complete', async () => {
+  const {plugin, log} = fakePlugin(0);
+  let cancelled = false;
+  plugin.endAssetScan = async ({snapshotToken}) => {
+    log.end.push(snapshotToken);
+    await Promise.resolve();
+    cancelled = true;
+    return {ended:true};
+  };
+  const result = await scanSnapshotPages({plugin, onPage() { throw Error('must not write'); },
+    shouldStop() { return cancelled; }});
+  assert.deepEqual(result, {
+    state:'stopped',processed:0,total:0,target:0,pages:0,complete:false
+  });
+  assert.deepEqual(log.end,['fresh-scan']);
+});

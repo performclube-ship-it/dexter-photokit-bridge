@@ -1,6 +1,7 @@
 import Foundation
 import Photos
 import UIKit
+import Vision
 import Capacitor
 
 /// DEXTER PhotoKit bridge for Capacitor 8. Metadata scans never read pixels.
@@ -21,6 +22,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         CAPPluginMethod(name: "isAlbumWritable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "areAssetsAccessible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPilotPreviews", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "classifyPilotAssets", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "addExistingAssets", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "verifyAlbumMembership", returnType: CAPPluginReturnPromise)
     ]
@@ -478,6 +480,82 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                 }
             }
             call.resolve(["previews": previews])
+        }
+    }
+
+
+    /// Opt-in, local-only Vision classification for a small explicitly chosen
+    /// batch. These are suggestions for user review, NEVER album write rules.
+    /// No iCloud downloads, full-resolution requests or network model calls.
+    @objc func classifyPilotAssets(_ call: CAPPluginCall) {
+        guard hasFullAccess(call) else { return }
+        guard let ids = assetIds(call) else { return }
+        guard ids.count <= maxPilotWrite else {
+            call.reject("O reconhecimento piloto permite até 10 fotografias.", "PILOT_CLASSIFY_LIMIT")
+            return
+        }
+        // Share the single-flight lock with thumbnails: two pixel-reading
+        // requests must not overlap and multiply memory usage.
+        guard acquirePilotPreview(call) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { self.releasePilotPreview() }
+            let fetched = self.fetchAssetsByID(ids)
+            guard fetched.count == ids.count else {
+                call.reject("Uma ou mais fotografias já não existem.", "CLASSIFY_ASSET_NOT_FOUND")
+                return
+            }
+            let manager = PHImageManager.default()
+            let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = false
+            options.isSynchronous = true
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .fast
+            let target = CGSize(width: 224, height: 224)
+            var results: [[String: Any]] = []
+            results.reserveCapacity(ids.count)
+
+            // Process one downscaled image at a time. Do not retain pixels in
+            // the result or persist/transmit the inferred labels.
+            for id in ids {
+                guard let asset = fetched[id] else {
+                    call.reject("Fotografia indisponível.", "CLASSIFY_ASSET_NOT_FOUND")
+                    return
+                }
+                guard asset.mediaType == .image else {
+                    results.append(["id": id, "status": "unsupported", "labels": []])
+                    continue
+                }
+                var image: UIImage?
+                var requiresCloud = false
+                manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFit, options: options) { value, info in
+                    image = value
+                    requiresCloud = (info?[PHImageResultIsInCloudKey] as? Bool) == true
+                }
+                guard let localImage = image,
+                      let downscaled = localImage.preparingThumbnail(of: target),
+                      let pixels = downscaled.cgImage else {
+                    results.append([
+                        "id": id,
+                        "status": requiresCloud ? "icloud" : "unavailable",
+                        "labels": []
+                    ])
+                    continue
+                }
+
+                let request = VNClassifyImageRequest()
+                do {
+                    try VNImageRequestHandler(cgImage: pixels, options: [:]).perform([request])
+                    let labels: [[String: Any]] = (request.results ?? [])
+                        .filter { $0.confidence.isFinite && $0.confidence >= 0.25 }
+                        .sorted { $0.confidence > $1.confidence }
+                        .prefix(3)
+                        .map { ["label": $0.identifier, "confidence": Double($0.confidence)] }
+                    results.append(["id": id, "status": "ready", "labels": labels])
+                } catch {
+                    results.append(["id": id, "status": "unavailable", "labels": []])
+                }
+            }
+            call.resolve(["results": results])
         }
     }
 

@@ -174,6 +174,12 @@ export async function scanSnapshotPages({
       if (!primaryError) throw endError;
     }
   }
+  // Cancellation can also arrive while native endAssetScan is in flight.
+  // Existing durable records stay saved, but a late stop must never be
+  // reported as complete or trigger the final progress event.
+  if (result.state !== 'stopped' && await shouldStop()) {
+    return { state: 'stopped', processed, total, target, pages, complete: false };
+  }
   // This signal can make the UI show 100%; only emit it after native close
   // confirms the snapshot was not invalidated during the final durable write.
   if (finalProgress) await onProgress(finalProgress);

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "recordedOn": "2026-11-23",
+  "project": "7f273ff5-3179-4961-b47b-f464cf562250",
+  "scope": "Existing DEXTER native PhotoKit bridge; no second Floot project",
+  "issue": "classifyLocalPages had src/dist implementation and declarations but was absent from the public package entrypoint",
+  "correction": "Export classifyLocalPages and LocalVision types from src/index.ts, dist/index.js, dist/index.d.ts",
+  "validation": {
+    "sourceCommit": "fe56cb1b007edbfa9b20f0bf5dc4ca8a4c5bb71a",
+    "pullRequest": 14,
+    "mergeCommit": "f2032747942f23b5a47bcf0f89a8c27da5819cba",
+    "tests": "three new Node public-entrypoint contract cases; CI Node suite green",
+    "workflows": [
+      {
+        "runId": 45107792146,
+        "event": "push",
+        "name": "Swift PhotoKit bridge iOS Simulator",
+        "result": "success"
+      },
+      {
+        "runId": 45107792148,
+        "event": "push",
+        "name": "Local CocoaPod iPhone SDK arm64",
+        "result": "success"
+      },
+      {
+        "runId": 45107805684,
+        "event": "pull_request",
+        "name": "Local CocoaPod iPhone SDK arm64",
+        "result": "success"
+      }
+    ]
+  },
+  "limitations": [
+    "All Xcode builds are unsigned fixture builds; no iPhone runtime PhotoKit operations or memory measurement.",
+    "Original Floot Project ZIP not obtained; no native integration in installed app.",
+    "No npm publication, no new Floot mobile build, no Apple upload and no real photos changed.",
+    "Floot shared daily action quota currently blocks project code updates until 2026-11-23 09:00 UTC."
+  ]
+}

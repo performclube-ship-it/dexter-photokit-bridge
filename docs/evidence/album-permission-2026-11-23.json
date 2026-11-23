@@ -1,0 +1,37 @@
+{
+  "projectId": "7f273ff5-3179-4961-b47b-f464cf562250",
+  "repository": "performclube-ship-it/dexter-photokit-bridge",
+  "dateUTC": "2026-11-23",
+  "change": "PhotoKit album creation and addExistingAssets recheck readWrite full authorization after asynchronous work, before mutation and before returning success, with lock release on every new early-reject path",
+  "pullRequest": "https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/17",
+  "sourceHeadSha": "8b034ac7779969f88f9ec221b841c4f86835a813",
+  "mergedMainSha": "eb2ded5f779319bd21b5082ca6a4e37bed32b641",
+  "testsAdded": 4,
+  "checks": [
+    {
+      "type": "Xcode Simulator bridge fixture and Node static/package suite",
+      "runId": 45125772038,
+      "runUrl": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45125772038",
+      "conclusion": "success",
+      "jobName": "verify-and-build"
+    },
+    {
+      "type": "Unsigned iPhone SDK arm64 local CocoaPod fixture",
+      "runId": 45125772030,
+      "runUrl": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45125772030",
+      "conclusion": "success",
+      "jobName": "unsigned-iphone-local-pod"
+    }
+  ],
+  "bounds": {
+    "photoLibraryWrite": "Existing PhotoKit addAssets references only; <=10 original assets per native add operation",
+    "strongGuarantee": "No Photos user data accessed in CI; authorization is rechecked at several async boundaries, not an atomic lease",
+    "noMobileBuild": true,
+    "noCodeSigning": true,
+    "noTestFlightUpload": true,
+    "noPhysicalIPhoneTest": true,
+    "runtimePermissionRevocationNotValidatedOnIPhone": true,
+    "realFlootProjectZipNotSupplied": true,
+    "remainingNextSteps": "Inspect original private native Floot export, block stale embedded web, integrate CocoaPod, sign and test on physical iPhone before App Store review."
+  }
+}

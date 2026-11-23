@@ -1,0 +1,33 @@
+{
+  "projectId": "7f273ff5-3179-4961-b47b-f464cf562250",
+  "purpose": "Read-only export preflight refuses fake or ambiguous NSPhotoLibraryUsageDescription before modifying the original Floot iOS export",
+  "pr": "https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/19",
+  "mergedCommit": "e78fb2a9a36da09a77d7670ec5e00f53725b3054",
+  "validatedHead": "f514e91a2df610934e83927816d7474e19c13d65",
+  "validations": [
+    {
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45140615772",
+      "result": "success"
+    },
+    {
+      "url": "https://github.com/performclube-ship-it/dexter-photokit-bridge/actions/runs/45140643773",
+      "result": "success"
+    }
+  ],
+  "guardedCases": [
+    "commented-out Photos usage key",
+    "CDATA-only usage key",
+    "duplicate active usage keys",
+    "unterminated XML comment"
+  ],
+  "positiveCase": "exactly one active readable usage key, with an obsolete commented-out key",
+  "limits": {
+    "fixtureOnly": true,
+    "originalNativeProjectZipInspected": false,
+    "signedBuild": false,
+    "iphoneTest": false,
+    "photoLibraryTouched": false,
+    "appStoreSubmission": false
+  },
+  "nextGate": "Inspect user's original native Floot Project zip with the current embedded web bundle; do not activate PhotoKit in stale export."
+}

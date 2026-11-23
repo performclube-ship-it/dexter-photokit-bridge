@@ -64,7 +64,18 @@ export async function classifyLocalPages({
   const totals = { processed: 0, expectedCount, batches: 0, retryableCount: 0, unsupportedCount: 0 };
   const state = name => ({ state: name, ...totals,
     complete: name === 'complete', needsRetry: totals.retryableCount > 0 });
-  if (!expectedCount) return state('complete');
+  if (!expectedCount) {
+    // A zero-count review must still exhaust the supplied selection source.
+    // Otherwise an erroneous empty selection can hide actual assets.
+    for await (const page of assetPages) {
+      if (await shouldStop()) return state('stopped');
+      if (!Array.isArray(page) || page.length === 0 || page.length > 250) {
+        fail('INVALID_ASSET_PAGE', 'Página de identificadores inválida para reconhecimento.');
+      }
+      fail('EXCESS_ASSET_SELECTION', 'A origem contém fotografias que não foram confirmadas.');
+    }
+    return (await shouldStop()) ? state('stopped') : state('complete');
+  }
   let {status} = await plugin.authorizationStatus();
   if (status === 'notDetermined') ({status} = await plugin.requestAuthorization());
   if (status !== 'authorized') {
@@ -89,7 +100,9 @@ export async function classifyLocalPages({
     totals.unsupportedCount += results.filter(r => r.status === 'unsupported').length;
     // Stop after acknowledged local review retains counts, but never claims completion.
     if (await shouldStop()) return false;
-    await onProgress({...totals}); // counts only, no labels or pixels
+    // An acknowledged last batch is not proof that the source has ended.
+    // Deferring the full-count event avoids false 100% for trailing IDs.
+    if (totals.processed < expectedCount) await onProgress({...totals});
     return !(await shouldStop());
   }
   let pending = [];
@@ -117,6 +130,9 @@ export async function classifyLocalPages({
     fail('INCOMPLETE_ASSET_SOURCE', 'Nem todas as fotografias confirmadas foram fornecidas.');
   }
   if (pending.length && !(await flush(pending))) return state('stopped');
+  if (await shouldStop()) return state('stopped');
+  // Only the exhausted, exact-count source is eligible for final progress.
+  await onProgress({...totals}); // counts only; never image labels or pixels
   if (await shouldStop()) return state('stopped');
   return state(totals.retryableCount ? 'retry_pending' : 'complete');
 }

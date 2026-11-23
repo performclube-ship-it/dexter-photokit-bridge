@@ -27,6 +27,14 @@ export interface DexterPhotoKitPlugin {
   getPilotPreviews(input: { assetIds: string[] }): Promise<{
     previews: Array<{ id: string; status: 'ready' | 'icloud' | 'unavailable'; dataUrl?: string }>;
   }>;
+  /** Optional on-device Vision suggestions for 1–10 original photos, never an automatic album decision. No iCloud downloads. */
+  classifyPilotAssets(input: { assetIds: string[] }): Promise<{
+    results: Array<{
+      id: string;
+      status: 'ready' | 'icloud' | 'unavailable' | 'unsupported';
+      labels: Array<{ label: string; confidence: number }>;
+    }>;
+  }>;
   /** Safety pilot: maximum 10 unique original PhotoKit assets per native write until real-device validation. */
   addExistingAssets(input: { albumId: string; assetIds: string[] }): Promise<{
     requestedCount: number;

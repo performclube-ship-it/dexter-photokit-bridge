@@ -1,0 +1,11 @@
+# DEXTER — opt-in local Vision classification pilot (23 November 2026)
+
+This update adds `classifyPilotAssets({ assetIds })` to the **existing** native PhotoKit bridge for the original Floot DEXTER app. It does not create another application or alter any Apple Photos album.
+
+The API accepts 1–10 unique PHAsset identifiers only after full Photos permission, rejects inaccessible assets, shares a single-flight lock with the image-preview API, and classifies only still images. Images are requested locally with `isNetworkAccessAllowed=false` at 224×224px, processed sequentially with Apple's on-device `VNClassifyImageRequest`. The output contains at most three suggestions per asset with confidence at least 0.25, or an explicit `icloud`, `unavailable`, or `unsupported` status. No full-resolution images, image bytes or data URLs are returned, and there is no remote inference, uploading or alteration of originals.
+
+**Crucial limitation:** Vision category labels are noisy, non-personal identity/object hints. Do not treat them as reliable family-member identification or automatically move/add photos based on this output. User-configured album names, explicit preview of each selected original and explicit final confirmation remain separate mandatory UI requirements. The JS caller must not log or persist classification labels or map a label directly to an Apple album. Keep cloud-only images in a review/retry queue rather than silently dropping them.
+
+Static contract regressions verify the native cap, offline-only image requests, single-flight throttle, nonmutating behavior, TS declaration and that native metadata paging stays pixel-free. Successful Xcode CI is required before merging; it does not prove iPhone runtime behavior, accuracy, memory use, 10,000+ images, iCloud handling or permissions.
+
+The method is not available in the current Floot iOS binary until the **private original DEXTER Project ZIP** is inspected and the local pod is integrated. No build, signing, TestFlight upload or App Store release is authorized without previous gates. Floot daily action quota is separate and was still unavailable at 01:40 UTC on 23 Nov; no metered Floot actions were used for this change.

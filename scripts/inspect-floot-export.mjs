@@ -26,6 +26,20 @@ const REQUIRED_FILES = [
 ];
 const SENSITIVE_NAME = /(^|\/)(\.env(\..*)?|[^/]+\.(p8|p12|mobileprovision|keystore|jks))$/i;
 
+// Reject commented-out, CDATA-only or ambiguous privacy keys. Conservative
+// read-only preflight: not a replacement for parsing the real plist in Xcode.
+function hasActivePhotosUsageKey(plist) {
+  if (!/<plist(?:\s|>)/.test(plist) || !/<dict>/.test(plist)) return false;
+  const noComments = plist.replace(/<!--[\s\S]*?-->/g, '');
+  if (noComments.includes('<!--') || noComments.includes('-->')) return false;
+  const active = noComments.replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+  if (active.includes('<![CDATA[')) return false;
+  const values = [...active.matchAll(
+    /<key>\s*NSPhotoLibraryUsageDescription\s*<\/key>\s*<string>([^<]*)<\/string>/g
+  )];
+  return values.length === 1 && /\S/.test(values[0][1]);
+}
+
 // Every ancestor is checked with lstat before reading any bytes. Checking only
 // the final file lets an untrusted export follow an ios/App or public symlink.
 function safePath(root, relative, type = 'file') {
@@ -134,7 +148,7 @@ export function inspectFlootExport(root) {
   let hasPhotoPermission = false;
   try {
     const plist = fileText(exportRoot, 'ios/App/App/Info.plist');
-    hasPhotoPermission = /<key>\s*NSPhotoLibraryUsageDescription\s*<\/key>\s*<string>\s*[^<\s][^<]*<\/string>/.test(plist);
+    hasPhotoPermission = hasActivePhotosUsageKey(plist);
     if (!hasPhotoPermission)
       problems.push('Missing readable NSPhotoLibraryUsageDescription; inspect plist before compiling');
   } catch {

@@ -98,6 +98,38 @@ test('blocks Xcode builds with mixed identities or without an explicit app ident
   assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
 });
 
+test('blocks Photos permission keys that exist only in XML comments or CDATA', t => {
+  const {dir, write} = setup(t);
+  write('ios/App/App/Info.plist',
+    '<plist><dict><!-- <key>NSPhotoLibraryUsageDescription</key><string>Access</string> --></dict></plist>');
+  let result = inspectFlootExport(dir);
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.hasPhotoPermission, false);
+  write('ios/App/App/Info.plist',
+    '<plist><dict><key>Example</key><string><![CDATA[<key>NSPhotoLibraryUsageDescription</key><string>Fake</string>]]></string></dict></plist>');
+  result = inspectFlootExport(dir);
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.hasPhotoPermission, false);
+});
+
+test('blocks ambiguous duplicate Photos permission keys and unterminated XML comments', t => {
+  const {dir, write} = setup(t);
+  const key = '<key>NSPhotoLibraryUsageDescription</key><string>Access photos</string>';
+  write('ios/App/App/Info.plist', '<plist><dict>'+key+key+'</dict></plist>');
+  assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
+  write('ios/App/App/Info.plist', '<plist><dict>'+key+'<!-- unterminated</dict></plist>');
+  assert.equal(inspectFlootExport(dir).status, 'BLOCKED');
+});
+
+test('allows an active explanation even if an obsolete version was commented out', t => {
+  const {dir, write} = setup(t);
+  write('ios/App/App/Info.plist',
+    '<plist><dict><!-- <key>NSPhotoLibraryUsageDescription</key><string>Old</string> --><key>NSPhotoLibraryUsageDescription</key><string>Acesso às fotografias</string></dict></plist>');
+  const result = inspectFlootExport(dir);
+  assert.equal(result.status, 'REVIEW_REQUIRED');
+  assert.equal(result.hasPhotoPermission, true);
+});
+
 test('rejects an empty Photos permission explanation', t => {
   const {dir,write} = setup(t);
   write('ios/App/App/Info.plist',

@@ -4,3 +4,5 @@ export const DexterPhotoKit = registerPlugin<DexterPhotoKitPlugin>('DexterPhotoK
 export type * from './definitions';
 export { scanSnapshotPages } from './snapshotScan.js';
 export type { SnapshotScanPage, SnapshotScanProgress, SnapshotScanResult } from './snapshotScan.js';
+export { classifyLocalPages } from './progressiveClassification.js';
+export type * from './progressiveClassification.js';

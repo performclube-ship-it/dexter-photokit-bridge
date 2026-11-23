@@ -1,0 +1,51 @@
+{
+  "projectId": "7f273ff5-3179-4961-b47b-f464cf562250",
+  "source": "existing DEXTER PhotoKit bridge repository; NOT a separate Floot application",
+  "change": "Validate every ID and selected-count bound in a <=250-ID source page before invoking native Vision or acknowledging that page",
+  "pr": "https://github.com/performclube-ship-it/dexter-photokit-bridge/pull/18",
+  "implementationCommit": "32e73815204864779d62781497fae2ed32eca04c",
+  "mergeCommit": "1a91fec2094142b49a167ffedabe688b647933d6",
+  "regressions": [
+    "invalid duplicate at end of same page: no classification, no review",
+    "more IDs than the exact reviewed selection in first page: no classification, no review",
+    "prior successful page acknowledgements remain, invalid next page has no new side effects"
+  ],
+  "verifiedRuns": [
+    {
+      "id": 45133039919,
+      "workflow": "Verify Swift PhotoKit bridge (Xcode)",
+      "trigger": "push",
+      "conclusion": "success"
+    },
+    {
+      "id": 45133039940,
+      "workflow": "Verify local PhotoKit pod without npm publication",
+      "trigger": "push",
+      "conclusion": "success"
+    },
+    {
+      "id": 45133100092,
+      "workflow": "Verify Swift PhotoKit bridge (Xcode)",
+      "trigger": "pull_request",
+      "conclusion": "success"
+    },
+    {
+      "id": 45133100035,
+      "workflow": "Verify local PhotoKit pod without npm publication",
+      "trigger": "pull_request",
+      "conclusion": "success"
+    }
+  ],
+  "limits": [
+    "GitHub Actions validates JS regressions and unsigned Xcode fixtures, not original user Photos on an iPhone",
+    "No Floot source code changed in this run (daily quota was previously exhausted until 09:00 UTC)",
+    "Native Floot Project zip has not been supplied; do not ship older embedded web bundle",
+    "No native signed build, no additional TestFlight upload, no public App Store release",
+    "No photo content, originals or Apple signing material accessed"
+  ],
+  "requiredNext": [
+    "After Floot quota reset, inspect latest source and transfer bridge status to static/__dev/photokit-bridge.md with expected_version",
+    "Inspect the real existing DEXTER Project zip privately (never upload to public bridge repo)",
+    "Integrate bridge only into current, reviewed web bundle; validate on physical iPhone before TestFlight and App Store"
+  ]
+}

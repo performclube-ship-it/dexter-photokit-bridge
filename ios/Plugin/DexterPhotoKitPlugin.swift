@@ -380,6 +380,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         }
         guard acquireAlbumMutation(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
+            guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
             // An interrupted/retried request must not silently create an album
             // with the same visible name. The app can refresh listAlbums and
             // select the existing exact identifier after this explicit error.
@@ -398,17 +399,22 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
             }
             // Keep the new album ID in a box to avoid a captured mutable local
             // across the PhotoKit transaction and its completion callback.
+            // Album enumeration can be slow; no mutation if access was revoked in flight.
+            guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
             let box = AlbumIdentifierBox()
             self.photoLibrary.performChanges({
                 let create = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title)
                 box.value = create.placeholderForCreatedAssetCollection.localIdentifier
             }, completionHandler: { success, error in
                 defer { self.releaseAlbumMutation() }
+                // PhotoKit may already have committed; never disclose identifiers after revocation.
+                guard !self.permissionRevoked(call) else { return }
                 guard success, let albumId = box.value else {
                     call.reject("Não foi possível criar o álbum Apple: \(error?.localizedDescription ?? "erro desconhecido")", "ALBUM_CREATE_FAILED")
                     return
                 }
                 let verified = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [albumId], options: nil).firstObject
+                guard !self.permissionRevoked(call) else { return }
                 guard verified?.localizedTitle == title else {
                     call.reject("O álbum foi criado, mas não foi possível verificar o destino. Confirma na app Fotografias.", "ALBUM_CREATE_UNVERIFIED")
                     return
@@ -604,12 +610,14 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
         guard acquireAlbumMutation(call) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let fetched = self.fetchAssetsByID(ids)
+            guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
             guard fetched.count == ids.count else {
                 self.releaseAlbumMutation()
                 call.reject("Algumas fotografias já não existem neste iPhone. Nada foi alterado.", "ASSET_NOT_FOUND")
                 return
             }
             let presentBefore = self.membership(in: album, ids: ids)
+            guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
             let toAdd = ids.filter { !presentBefore.contains($0) }.compactMap { fetched[$0] }
             if toAdd.isEmpty {
                 // A competing Photos client may have changed the album between
@@ -621,6 +629,7 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                     call.reject("A pertença ao álbum mudou durante a verificação. Confirma na app Fotografias antes de repetir.", "ALBUM_NOOP_UNVERIFIED")
                     return
                 }
+                guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
                 self.releaseAlbumMutation()
                 call.resolve([
                     "requestedCount": ids.count,
@@ -629,6 +638,8 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                 ])
                 return
             }
+            // Do not start a PhotoKit write after the user's authorization changes.
+            guard !self.permissionRevoked(call) else { self.releaseAlbumMutation(); return }
             self.photoLibrary.performChanges({
                 guard let request = PHAssetCollectionChangeRequest(for: album) else { return }
                 // PhotoKit adds references to pre-existing PHAssets; no copy or deletion.
@@ -637,11 +648,14 @@ public class DexterPhotoKitPlugin: CAPPlugin, CAPBridgedPlugin, PHPhotoLibraryCh
                 // Retain the mutation reservation until Photos has committed
                 // and we have independently verified the destination.
                 defer { self.releaseAlbumMutation() }
+                // If access changed after the transaction started, do not report success.
+                guard !self.permissionRevoked(call) else { return }
                 guard success else {
                     call.reject("A Apple não concluiu a alteração: \(error?.localizedDescription ?? "erro desconhecido")", "ALBUM_ADD_FAILED")
                     return
                 }
                 let presentAfter = self.membership(in: album, ids: ids)
+                guard !self.permissionRevoked(call) else { return }
                 guard presentAfter.count == ids.count else {
                     call.reject("A operação terminou, mas nem todas as fotos estão no álbum. Verifica Fotografias antes de repetir.", "ALBUM_ADD_UNVERIFIED")
                     return
